@@ -275,6 +275,11 @@ body {
   font-weight: 600;
 }
 
+.editor-bar .print-info {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .editor-bar .spacer {
   flex: 1;
 }

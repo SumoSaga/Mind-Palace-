@@ -53,6 +53,10 @@ export interface Layout {
   bleed?: number;
   /** Print crop marks showing where to trim. */
   marks?: boolean;
+  /** Print several pages (cards) tiled onto sheets of this paper, instead of one page per sheet. */
+  sheet?: 'letter' | 'a4';
+  /** With `sheet`: odd pages are fronts and even pages their backs, on alternating sheets. */
+  duplex?: boolean;
   /** Facing pages are shown as spreads, as in a book. */
   facing: boolean;
 }

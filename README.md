@@ -41,7 +41,9 @@ Step 2 (manual layout tool), first slice:
 
 - "Refine" opens the selected image in a brush editor: Erase removes leftover background, Restore paints the original back. Brush size, undo (10 steps), zoom with the scroll wheel. Shortcuts: E, R, [ and ], Ctrl+Z, Esc. See `src/bg/RefineEditor.tsx`.
 
-Not built yet in step 2: uploading your own font files, cropping images inside frames, arranging cards onto sheets.
+- Card sheets: "Tile onto Letter/A4 sheets" prints several small pages on each sheet of paper, choosing the paper orientation that fits more, with cut marks in the margin. "Double-sided" treats odd pages as fronts and even pages as backs, printing backs on alternate sheets with the columns mirrored (flip the paper side to side). See `src/PrintView.tsx`.
+
+Not built yet in step 2: uploading your own font files, cropping images inside frames.
 
 `npm run dev` starts two things: the app, and a development sync server (`server/sync-server.mjs`) that relays changes between devices. The sync server keeps spaces in memory only.
 

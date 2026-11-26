@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { createPortal } from 'react-dom';
 import { useRefineId } from './bg/RefineEditor';
 import { BackgroundButtons } from './bg/removeBackground';
 import { DEFAULT_FONT, FONT_GROUPS } from './fonts/fonts';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
-import { boxStyle, ItemView, textStyle } from './ItemView';
+import { ItemView } from './ItemView';
+import { PAPERS, planPrint, PrintView } from './PrintView';
 import {
   addItem,
   addPage,
@@ -33,10 +33,6 @@ const PRESETS: Array<{ key: string; label: string; w: number; h: number }> = [
 ];
 
 const SPREAD_GAP = 60;
-
-// Crop marks: short lines outside the bleed showing where to trim.
-const MARK_GAP = 6;
-const MARK_LENGTH = 18;
 
 interface Placed {
   page: Page;
@@ -202,6 +198,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
 
   const preset = PRESETS.find((p) => Math.abs(p.w - layout.w) < 0.5 && Math.abs(p.h - layout.h) < 0.5);
   const inches = (pt: number) => +(pt / 72).toFixed(3);
+  const plan = planPrint(layout, pages);
   const grid = 24 * view.k;
   const surfaceStyle: CSSProperties = {
     backgroundSize: `${grid}px ${grid}px`,
@@ -293,6 +290,38 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           Facing pages
         </label>
         <span className="spacer" />
+        <select
+          aria-label="Print on"
+          title="Print each page on its own, or tile small pages such as cards onto sheets of paper with cut marks"
+          value={layout.sheet ?? 'own'}
+          onChange={(e) =>
+            updateLayout(layoutId, { sheet: e.target.value === 'own' ? undefined : (e.target.value as Layout['sheet']) })
+          }
+        >
+          <option value="own">Print one page each</option>
+          {Object.entries(PAPERS).map(([key, p]) => (
+            <option key={key} value={key}>
+              Tile onto {p.label}
+            </option>
+          ))}
+        </select>
+        {layout.sheet && !plan.tooBig && (
+          <label title="Odd pages are fronts and even pages their backs. Backs print on alternate sheets, mirrored so they line up when the paper is flipped side to side.">
+            <input
+              type="checkbox"
+              checked={!!layout.duplex}
+              onChange={(e) => updateLayout(layoutId, { duplex: e.target.checked })}
+            />
+            Double-sided
+          </label>
+        )}
+        {layout.sheet && (
+          <span className="print-info">
+            {plan.tooBig
+              ? 'Page is too big to tile'
+              : `${plan.perSheet} per sheet · ${plan.sheets.length} ${plan.sheets.length === 1 ? 'sheet' : 'sheets'}`}
+          </span>
+        )}
         <button onClick={() => window.print()} title="Print at true size, or choose Save as PDF">
           Print / PDF
         </button>
@@ -452,73 +481,5 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
 
       <PrintView layout={layout} pages={pages} items={items} />
     </div>
-  );
-}
-
-/**
- * The pages at physical size, shown only when printing. The browser's print
- * dialog then prints at true size or saves a PDF with real text.
- */
-function PrintView({ layout, pages, items }: { layout: Layout; pages: Page[]; items: Item[] }) {
-  const bleed = layout.bleed ?? 0;
-  // The printed sheet is the page plus its bleed, plus room for crop marks if they are on.
-  const pad = bleed + (layout.marks ? MARK_GAP + MARK_LENGTH : 0);
-  const sheetW = layout.w + pad * 2;
-  const sheetH = layout.h + pad * 2;
-  const pt = (v: number) => `${v}pt`;
-
-  // Two marks at each corner of the trimmed page: one horizontal, one vertical.
-  const marks: CSSProperties[] = [];
-  if (layout.marks) {
-    for (const x of [pad, pad + layout.w]) {
-      for (const y of [pad, pad + layout.h]) {
-        const outX = x === pad ? 0 : sheetW - MARK_LENGTH;
-        const outY = y === pad ? 0 : sheetH - MARK_LENGTH;
-        marks.push({ left: pt(outX), top: pt(y - 0.25), width: pt(MARK_LENGTH), height: '0.5pt' });
-        marks.push({ left: pt(x - 0.25), top: pt(outY), width: '0.5pt', height: pt(MARK_LENGTH) });
-      }
-    }
-  }
-
-  return createPortal(
-    <div className="print-root">
-      <style>{`@page { size: ${sheetW}pt ${sheetH}pt; margin: 0; }`}</style>
-      {pages.map((page) => {
-        const location = pageLocation(page.id);
-        return (
-          <div key={page.id} className="print-page" style={{ width: pt(sheetW), height: pt(sheetH) }}>
-            {/* Everything outside the bleed is cut off; inside it, frames keep their page positions. */}
-            <div
-              className="print-bleed"
-              style={{
-                left: pt(pad - bleed),
-                top: pt(pad - bleed),
-                width: pt(layout.w + bleed * 2),
-                height: pt(layout.h + bleed * 2),
-              }}
-            >
-              <div className="print-trim" style={{ left: pt(bleed), top: pt(bleed) }}>
-                {items
-                  .filter((it) => it.location === location)
-                  .map((it) => (
-                    <div key={it.id} className={`item item-${it.type} on-page`} style={boxStyle(it, 'pt')}>
-                      {it.type === 'image' && <img src={it.src} alt="" />}
-                      {it.type === 'text' && (
-                        <div className="text" style={textStyle(it, 'pt')}>
-                          {it.text}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-              </div>
-            </div>
-            {marks.map((style, i) => (
-              <div key={i} className="crop-mark" style={style} />
-            ))}
-          </div>
-        );
-      })}
-    </div>,
-    document.body,
   );
 }
