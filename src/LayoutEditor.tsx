@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useRefineId } from './bg/RefineEditor';
 import { BackgroundButtons } from './bg/removeBackground';
+import { continueOnNextPage, flowToEnd, useFlow } from './flow';
 import { DEFAULT_FONT, FONT_GROUPS } from './fonts/fonts';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import { ItemView } from './ItemView';
@@ -14,6 +15,8 @@ import {
   PT_PER_PX,
   removeItem,
   removePage,
+  replaceStoryRange,
+  storyFrames,
   undoManager,
   updateItem,
   updateLayout,
@@ -67,6 +70,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const fitted = useRef(false);
   const refining = !!useRefineId();
+  const flow = useFlow(items);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
 
   const placed = layout ? placePages(pages, layout) : [];
@@ -92,6 +96,20 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
     setView({ k, x: (r.width - tray - spreadW * k) / 2, y: 40 });
   }, [layout, rootRef, setView]);
 
+  /** Style changes on a linked frame apply to every frame of its story. */
+  function styleText(item: Item, patch: Partial<Item>) {
+    const targets = item.storyId ? storyFrames(item.storyId) : [item];
+    for (const t of targets) updateItem(t.id, patch);
+  }
+
+  function continueFrame(item: Item) {
+    const id = continueOnNextPage(item);
+    if (!id) return;
+    setSelected(id);
+    const added = getItems().find((it) => it.id === id);
+    if (added) setCurrentPageId(added.location.slice('page:'.length));
+  }
+
   function deleteSelected() {
     if (selected) removeItem(selected);
     setSelected(null);
@@ -107,7 +125,8 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
         x: layout.margin,
         y: layout.margin,
         w,
-        h: 72,
+        // Long pasted text gets a frame filling the margins, ready to flow on.
+        h: text.length > 300 ? layout.h - layout.margin * 2 : 72,
         text,
         fontFamily: DEFAULT_FONT,
         fontSize: 11,
@@ -347,7 +366,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
             <select
               aria-label="Font"
               value={sel.fontFamily ?? DEFAULT_FONT}
-              onChange={(e) => updateItem(sel.id, { fontFamily: e.target.value })}
+              onChange={(e) => styleText(sel,{ fontFamily: e.target.value })}
             >
               {FONT_GROUPS.map((g) => (
                 <optgroup key={g.label} label={g.label}>
@@ -366,7 +385,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
                 min={4}
                 max={400}
                 value={sel.fontSize ?? 11}
-                onChange={(e) => +e.target.value >= 4 && updateItem(sel.id, { fontSize: +e.target.value })}
+                onChange={(e) => +e.target.value >= 4 && styleText(sel,{ fontSize: +e.target.value })}
               />
               pt
             </label>
@@ -374,30 +393,46 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
               type="color"
               aria-label="Text colour"
               value={sel.color ?? '#1a1a1a'}
-              onChange={(e) => updateItem(sel.id, { color: e.target.value })}
+              onChange={(e) => styleText(sel,{ color: e.target.value })}
             />
             <select
               aria-label="Alignment"
               value={sel.align ?? 'left'}
-              onChange={(e) => updateItem(sel.id, { align: e.target.value as Item['align'] })}
+              onChange={(e) => styleText(sel,{ align: e.target.value as Item['align'] })}
             >
               <option value="left">Left</option>
               <option value="center">Centre</option>
               <option value="right">Right</option>
               <option value="justify">Justified</option>
             </select>
-            <button className={sel.bold ? 'on' : ''} onClick={() => updateItem(sel.id, { bold: !sel.bold })}>
+            <button className={sel.bold ? 'on' : ''} onClick={() => styleText(sel,{ bold: !sel.bold })}>
               <b>B</b>
             </button>
-            <button className={sel.italic ? 'on' : ''} onClick={() => updateItem(sel.id, { italic: !sel.italic })}>
+            <button className={sel.italic ? 'on' : ''} onClick={() => styleText(sel,{ italic: !sel.italic })}>
               <i>I</i>
             </button>
           </>
         )}
         {sel && (
           <>
+            {sel.type === 'text' && (
+              <>
+                <button
+                  onClick={() => continueFrame(sel)}
+                  title="Add a linked frame on the next page; text that does not fit here carries on there"
+                >
+                  Continue on next page
+                </button>
+                <button
+                  onClick={() => flowToEnd(sel)}
+                  title="Keep adding pages and linked frames until all of this text is placed"
+                >
+                  Flow to end
+                </button>
+              </>
+            )}
             <BackgroundButtons item={sel} />
-            <button onClick={() => sendToDesk(sel)}>Move to Desk</button>
+            {!sel.storyId && <button onClick={() => sendToDesk(sel)}>Move to Desk</button>}
             <button onClick={deleteSelected}>Delete</button>
           </>
         )}
@@ -457,6 +492,9 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
                         }}
                         toWorld={toPage}
                         onDragEnd={onDragEnd}
+                        flow={flow.get(it.id)}
+                        onCommitFlowText={(f, text) => replaceStoryRange(f.storyId, f.start, f.end, text)}
+                        onOverflowClick={continueFrame}
                       />
                     ))}
                   <span className="page-number">{i + 1}</span>
@@ -479,7 +517,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
         )}
       </div>
 
-      <PrintView layout={layout} pages={pages} items={items} />
+      <PrintView layout={layout} pages={pages} items={items} flow={flow} />
     </div>
   );
 }

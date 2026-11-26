@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { useBgStatus } from './bg/removeBackground';
 import { deviceAt, highlightDevice } from './Dock';
+import type { FlowInfo } from './flow';
 import type { Point } from './hooks';
 import { bringToFront, updateItem } from './store';
 import type { Item, Layout } from './store';
@@ -21,6 +22,19 @@ interface Props {
   onOpen?: (item: Item) => void;
   /** Called after the item has been dragged and released. */
   onDragEnd?: (id: string) => void;
+  /** For a linked text frame: the part of its story it shows. */
+  flow?: FlowInfo;
+  /** Called with the edited text of a linked frame's portion. */
+  onCommitFlowText?: (flow: FlowInfo, text: string) => void;
+  /** Called when the "more text" marker on an overflowing frame is clicked. */
+  onOverflowClick?: (item: Item) => void;
+}
+
+/** Styles for a frame's text, including full justification where a paragraph runs on. */
+export function flowTextStyle(item: Item, unit: Unit, flow: FlowInfo | undefined): CSSProperties {
+  const style = textStyle(item, unit);
+  if (flow?.continues && item.align === 'justify') style.textAlignLast = 'justify';
+  return style;
 }
 
 const MIN_SIZE = 12;
@@ -62,7 +76,19 @@ export function textStyle(item: Item, unit: Unit): CSSProperties {
   };
 }
 
-export function ItemView({ item, selected, onSelect, toWorld, unit = 'px', layout, onOpen, onDragEnd }: Props) {
+export function ItemView({
+  item,
+  selected,
+  onSelect,
+  toWorld,
+  unit = 'px',
+  layout,
+  onOpen,
+  onDragEnd,
+  flow,
+  onCommitFlowText,
+  onOverflowClick,
+}: Props) {
   const [editing, setEditing] = useState(false);
   const busy = useBgStatus(item.id);
   const textRef = useRef<HTMLDivElement>(null);
@@ -157,7 +183,9 @@ export function ItemView({ item, selected, onSelect, toWorld, unit = 'px', layou
 
   function finishEditing() {
     if (!editing) return;
-    updateItem(item.id, { text: textRef.current?.innerText ?? '' });
+    const text = textRef.current?.innerText ?? '';
+    if (flow) onCommitFlowText?.(flow, text);
+    else updateItem(item.id, { text });
     setEditing(false);
   }
 
@@ -178,7 +206,7 @@ export function ItemView({ item, selected, onSelect, toWorld, unit = 'px', layou
         <div
           ref={textRef}
           className="text"
-          style={textStyle(item, unit)}
+          style={flowTextStyle(item, unit, flow)}
           contentEditable={editing}
           suppressContentEditableWarning
           onBlur={finishEditing}
@@ -186,8 +214,18 @@ export function ItemView({ item, selected, onSelect, toWorld, unit = 'px', layou
             if (e.key === 'Escape') (e.target as HTMLElement).blur();
           }}
         >
-          {item.text}
+          {flow ? flow.text : item.text}
         </div>
+      )}
+      {flow?.overflow && !editing && (
+        <button
+          className="overflow-mark"
+          title="There is more text than fits. Click to continue it on the next page."
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onOverflowClick?.(item)}
+        >
+          +
+        </button>
       )}
       {item.type === 'layout' && (
         <div className="layout-card">

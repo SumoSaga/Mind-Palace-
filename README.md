@@ -45,6 +45,16 @@ Step 2 (manual layout tool), first slice:
 
 Not built yet in step 2: uploading your own font files, cropping images inside frames.
 
+Step 3 (linked text frames), first slice:
+
+- A text frame can be continued into a linked frame on the next page ("Continue on next page", or the red + on a frame with more text than fits). The text is then one story flowing through the chain; whatever does not fit a frame carries on into the next.
+- "Flow to end" keeps adding pages and linked frames until all the text is placed (up to 300 frames at a time).
+- Editing a linked frame edits its portion of the story; the rest reflows when you finish. Resizing, restyling or deleting a linked frame reflows too. Style changes apply to the whole story.
+- Pasting long text into the editor makes a frame that fills the margins.
+- The flow is worked out by measuring real text in the browser (`src/flow.ts`); it is not stored.
+
+Not built yet in step 3: mixed styles inside a story (headings, bold words), control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
+
 `npm run dev` starts two things: the app, and a development sync server (`server/sync-server.mjs`) that relays changes between devices. The sync server keeps spaces in memory only.
 
 Not built yet: sign-in, cloud storage, hosting outside the local network.

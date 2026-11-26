@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { boxStyle, textStyle } from './ItemView';
+import type { FlowInfo } from './flow';
+import { boxStyle, flowTextStyle } from './ItemView';
 import { pageLocation } from './store';
 import type { Item, Layout, Page } from './store';
 
@@ -157,7 +158,18 @@ export function planPrint(layout: Layout, pages: Page[]): PrintPlan {
  * The pages at physical size, shown only when printing. The browser's print
  * dialog then prints at true size or saves a PDF with real text.
  */
-export function PrintView({ layout, pages, items }: { layout: Layout; pages: Page[]; items: Item[] }) {
+export function PrintView({
+  layout,
+  pages,
+  items,
+  flow,
+}: {
+  layout: Layout;
+  pages: Page[];
+  items: Item[];
+  /** The portion of text each linked frame shows. */
+  flow: Map<string, FlowInfo>;
+}) {
   const bleed = layout.bleed ?? 0;
   const plan = planPrint(layout, pages);
 
@@ -187,8 +199,8 @@ export function PrintView({ layout, pages, items }: { layout: Layout; pages: Pag
                       <div key={it.id} className={`item item-${it.type} on-page`} style={boxStyle(it, 'pt')}>
                         {it.type === 'image' && <img src={it.src} alt="" />}
                         {it.type === 'text' && (
-                          <div className="text" style={textStyle(it, 'pt')}>
-                            {it.text}
+                          <div className="text" style={flowTextStyle(it, 'pt', flow.get(it.id))}>
+                            {flow.get(it.id)?.text ?? it.text}
                           </div>
                         )}
                       </div>

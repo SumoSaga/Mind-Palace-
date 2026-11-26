@@ -321,6 +321,23 @@ body {
   pointer-events: none;
 }
 
+.overflow-mark {
+  position: absolute;
+  right: calc(-9px * var(--inv, 1));
+  bottom: calc(-9px * var(--inv, 1));
+  width: calc(18px * var(--inv, 1));
+  height: calc(18px * var(--inv, 1));
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font: 700 calc(14px * var(--inv, 1)) / 1 system-ui, sans-serif;
+  color: #fff;
+  background: #e5484d;
+  border: 0;
+  border-radius: calc(4px * var(--inv, 1));
+  cursor: pointer;
+}
+
 .bleed-guide {
   position: absolute;
   border: calc(1px * var(--inv, 1)) solid #e5484d;

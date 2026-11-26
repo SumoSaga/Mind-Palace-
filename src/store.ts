@@ -30,6 +30,12 @@ export interface Item {
   src?: string;
   /** The untouched image, kept when `src` holds an edited version (e.g. background removed). */
   originalSrc?: string;
+  /**
+   * For linked text frames: the story whose text flows through this frame, and
+   * this frame's position in the chain. The frame then has no `text` of its own.
+   */
+  storyId?: string;
+  storyIndex?: number;
   /** For type 'layout': the layout document this Desk card opens. */
   layoutId?: string;
   // Text styling. Font size is in the surface's unit (px on the Desk, pt on a page).
@@ -65,6 +71,12 @@ export interface Page {
   id: string;
   layoutId: string;
   order: number;
+}
+
+/** Text that flows through a chain of linked frames. */
+export interface Story {
+  id: string;
+  text: string;
 }
 
 /** CSS pixels are 1/96 inch and points are 1/72 inch. */
@@ -121,8 +133,9 @@ function collection<T extends { id: string }>(name: string, sort?: (a: T, b: T) 
 const items = collection<Item>('items', (a, b) => a.z - b.z);
 const layouts = collection<Layout>('layouts');
 const pages = collection<Page>('pages', (a, b) => a.order - b.order);
+const stories = collection<Story>('stories');
 
-export const undoManager = new Y.UndoManager([items.map, layouts.map, pages.map]);
+export const undoManager = new Y.UndoManager([items.map, layouts.map, pages.map, stories.map]);
 
 // --- items -------------------------------------------------------------------
 
@@ -152,6 +165,7 @@ export function removeItem(id: string) {
     }
     items.remove(id);
   });
+  pruneStories();
 }
 
 export function bringToFront(id: string) {
@@ -193,4 +207,41 @@ function removePageContents(pageId: string) {
 
 export function removePage(pageId: string) {
   doc.transact(() => removePageContents(pageId));
+  pruneStories();
+}
+
+export const getPages = pages.get;
+
+// --- stories: text flowing through linked frames -----------------------------
+
+export const useStories = stories.use;
+export const getStories = stories.get;
+
+/** The frames a story flows through, in order. */
+export function storyFrames(storyId: string, list: Item[] = items.get()): Item[] {
+  return list.filter((it) => it.storyId === storyId).sort((a, b) => (a.storyIndex ?? 0) - (b.storyIndex ?? 0));
+}
+
+/** Turns a standalone text frame into the first frame of a story, if it is not one already. */
+export function ensureStory(item: Item): string {
+  if (item.storyId) return item.storyId;
+  const storyId = crypto.randomUUID();
+  doc.transact(() => {
+    stories.add(storyId, { text: item.text ?? '' });
+    items.update(item.id, { storyId, storyIndex: 0, text: undefined });
+  });
+  return storyId;
+}
+
+/** Replaces part of a story's text, as when one frame's portion is edited. */
+export function replaceStoryRange(storyId: string, start: number, end: number, text: string) {
+  const story = stories.get().find((s) => s.id === storyId);
+  if (!story) return;
+  stories.update(storyId, { text: story.text.slice(0, start) + text + story.text.slice(end) });
+}
+
+/** Removes stories that no frame shows any more. */
+function pruneStories() {
+  const used = new Set(items.get().map((it) => it.storyId));
+  for (const s of stories.get()) if (!used.has(s.id)) stories.remove(s.id);
 }
