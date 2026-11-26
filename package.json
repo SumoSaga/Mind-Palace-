@@ -1,0 +1,31 @@
+{
+  "name": "mind-palace",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n sync,web \"node server/sync-server.mjs\" \"vite\"",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
+    "lib0": "^0.2.120",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "ws": "^8.23.0",
+    "y-indexeddb": "^9.0.12",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^3.1.0",
+    "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.3",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "typescript": "^7.0.2",
+    "vite": "^8.4.0"
+  }
+}
