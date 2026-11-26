@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { useRefineId } from './bg/RefineEditor';
 import { BackgroundButtons } from './bg/removeBackground';
 import { DEFAULT_FONT, FONT_GROUPS } from './fonts/fonts';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
@@ -69,6 +70,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   const [trayOpen, setTrayOpen] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const fitted = useRef(false);
+  const refining = !!useRefineId();
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
 
   const placed = layout ? placePages(pages, layout) : [];
@@ -187,7 +189,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   }
 
   useEditingKeys({
-    active: true,
+    active: !refining,
     onDelete: deleteSelected,
     onEscape: () => setSelected(null),
     onUndo: () => undoManager.undo(),

@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { RefineEditor, useRefineId } from './bg/RefineEditor';
 import { Desk } from './Desk';
 import { Dock } from './Dock';
 import { LayoutEditor } from './LayoutEditor';
@@ -15,6 +16,7 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [openLayout, setOpenLayout] = useState<string | null>(null);
   const closeLayout = useCallback(() => setOpenLayout(null), []);
+  const refineId = useRefineId();
 
   function changeMode(next: Mode) {
     setSelected(null);
@@ -24,7 +26,7 @@ export function App() {
   return (
     <div className="app">
       <Desk
-        active={mode === 'desk' && !openLayout}
+        active={mode === 'desk' && !openLayout && !refineId}
         selected={selected}
         setSelected={setSelected}
         onOpenLayout={setOpenLayout}
@@ -32,6 +34,7 @@ export function App() {
       {mode === 'stage' && <Stage onOpenDesk={() => changeMode('desk')} onOpenLayout={setOpenLayout} />}
       <Dock mode={mode} setMode={changeMode} selected={selected} onSent={() => setSelected(null)} />
       {openLayout && <LayoutEditor key={openLayout} layoutId={openLayout} onClose={closeLayout} />}
+      {refineId && <RefineEditor key={refineId} itemId={refineId} />}
     </div>
   );
 }

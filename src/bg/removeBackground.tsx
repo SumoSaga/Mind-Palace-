@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { updateItem } from '../store';
 import type { Item } from '../store';
+import { openRefine } from './RefineEditor';
 import type { WorkerReply, WorkerRequest } from './worker';
 
 /**
@@ -100,6 +101,11 @@ export function BackgroundButtons({ item }: { item: Item | undefined }) {
       <button disabled={!!busy} onClick={() => void removeBackground(item)}>
         {busy ?? 'Remove background'}
       </button>
+      {!busy && (
+        <button onClick={() => openRefine(item.id)} title="Erase or restore parts of the image by hand">
+          Refine
+        </button>
+      )}
       {item.originalSrc && !busy && <button onClick={() => restoreBackground(item)}>Restore background</button>}
     </>
   );

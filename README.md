@@ -39,7 +39,9 @@ Step 2 (manual layout tool), first slice:
 - Fonts: 24 open-licensed font families are bundled with the app (book serifs, fantasy display, modern sans, typewriter), so they look the same on every device and in print. See `src/fonts/`.
 - Bleed and crop marks: set a bleed to see its guide (red) around each page; frames that reach it print past the trim edge. With crop marks on, the printed sheet grows to make room for them.
 
-Not built yet in step 2: a refine brush for cut-outs, uploading your own font files, cropping images inside frames, arranging cards onto sheets.
+- "Refine" opens the selected image in a brush editor: Erase removes leftover background, Restore paints the original back. Brush size, undo (10 steps), zoom with the scroll wheel. Shortcuts: E, R, [ and ], Ctrl+Z, Esc. See `src/bg/RefineEditor.tsx`.
+
+Not built yet in step 2: uploading your own font files, cropping images inside frames, arranging cards onto sheets.
 
 `npm run dev` starts two things: the app, and a development sync server (`server/sync-server.mjs`) that relays changes between devices. The sync server keeps spaces in memory only.
 
