@@ -36,7 +36,10 @@ Step 2 (manual layout tool), first slice:
 
 - "Remove background" appears when an image is selected, on the Desk and in the editor. It runs on the device (CPU, in a worker), keeps the original, and "Restore background" undoes it. The first use downloads a 176 MB model from Hugging Face, which the browser then caches. Model: ormbg (Apache-2.0), via transformers.js (Apache-2.0). It takes roughly 20 seconds per image on a desktop.
 
-Not built yet in step 2: a refine brush for cut-outs, loading fonts beyond those installed on the computer, bleed and crop marks, cropping images inside frames, arranging cards onto sheets.
+- Fonts: 24 open-licensed font families are bundled with the app (book serifs, fantasy display, modern sans, typewriter), so they look the same on every device and in print. See `src/fonts/`.
+- Bleed and crop marks: set a bleed to see its guide (red) around each page; frames that reach it print past the trim edge. With crop marks on, the printed sheet grows to make room for them.
+
+Not built yet in step 2: a refine brush for cut-outs, uploading your own font files, cropping images inside frames, arranging cards onto sheets.
 
 `npm run dev` starts two things: the app, and a development sync server (`server/sync-server.mjs`) that relays changes between devices. The sync server keeps spaces in memory only.
 

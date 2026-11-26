@@ -316,6 +316,12 @@ body {
   pointer-events: none;
 }
 
+.bleed-guide {
+  position: absolute;
+  border: calc(1px * var(--inv, 1)) solid #e5484d;
+  pointer-events: none;
+}
+
 .page-number {
   position: absolute;
   left: 0;
@@ -433,6 +439,22 @@ body {
 
   .print-page:last-child {
     break-after: auto;
+  }
+
+  .print-bleed {
+    position: absolute;
+    overflow: hidden;
+  }
+
+  .print-trim {
+    position: absolute;
+    width: 0;
+    height: 0;
+  }
+
+  .crop-mark {
+    position: absolute;
+    background: #000;
   }
 }
 

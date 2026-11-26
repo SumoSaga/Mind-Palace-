@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { BackgroundButtons } from './bg/removeBackground';
+import { DEFAULT_FONT, FONT_GROUPS } from './fonts/fonts';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import { boxStyle, ItemView, textStyle } from './ItemView';
 import {
@@ -30,18 +31,11 @@ const PRESETS: Array<{ key: string; label: string; w: number; h: number }> = [
   { key: 'tarot', label: 'Tarot card 2.75 × 4.75 in', w: 198, h: 342 },
 ];
 
-// Fonts already present on most computers. Loading other fonts comes later.
-const FONTS = [
-  'Georgia',
-  'Palatino Linotype',
-  'Times New Roman',
-  'Arial',
-  'Verdana',
-  'Trebuchet MS',
-  'Courier New',
-];
-
 const SPREAD_GAP = 60;
+
+// Crop marks: short lines outside the bleed showing where to trim.
+const MARK_GAP = 6;
+const MARK_LENGTH = 18;
 
 interface Placed {
   page: Page;
@@ -117,7 +111,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
         w,
         h: 72,
         text,
-        fontFamily: 'Georgia',
+        fontFamily: DEFAULT_FONT,
         fontSize: 11,
       }),
     );
@@ -153,7 +147,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
       ...box,
       rot: 0,
       ...(item.type === 'text'
-        ? { fontSize: Math.round((item.fontSize ?? 20) * PT_PER_PX), fontFamily: item.fontFamily ?? 'Georgia' }
+        ? { fontSize: Math.round((item.fontSize ?? 20) * PT_PER_PX), fontFamily: item.fontFamily ?? DEFAULT_FONT }
         : {}),
     });
     setSelected(item.id);
@@ -269,6 +263,25 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           />
           in
         </label>
+        <label title="Extra area past the trim edge for art that runs off the page. Printers usually ask for 0.125 in.">
+          Bleed
+          <input
+            type="number"
+            min={0}
+            step={0.125}
+            value={inches(layout.bleed ?? 0)}
+            onChange={(e) => +e.target.value >= 0 && updateLayout(layoutId, { bleed: +e.target.value * 72 })}
+          />
+          in
+        </label>
+        <label title="Print short lines outside the page showing where to trim">
+          <input
+            type="checkbox"
+            checked={!!layout.marks}
+            onChange={(e) => updateLayout(layoutId, { marks: e.target.checked })}
+          />
+          Crop marks
+        </label>
         <label>
           <input
             type="checkbox"
@@ -302,13 +315,17 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           <>
             <select
               aria-label="Font"
-              value={sel.fontFamily ?? FONTS[0]}
+              value={sel.fontFamily ?? DEFAULT_FONT}
               onChange={(e) => updateItem(sel.id, { fontFamily: e.target.value })}
             >
-              {FONTS.map((f) => (
-                <option key={f} value={f} style={{ fontFamily: f }}>
-                  {f}
-                </option>
+              {FONT_GROUPS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.fonts.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <label>
@@ -394,6 +411,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
                   onPointerDown={() => setCurrentPageId(page.id)}
                 >
                   <div className="margin-guide" style={{ inset: `${layout.margin}pt` }} />
+                  {!!layout.bleed && <div className="bleed-guide" style={{ inset: `${-layout.bleed}pt` }} />}
                   {items
                     .filter((it) => it.location === location)
                     .map((it) => (
@@ -440,25 +458,61 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
  * dialog then prints at true size or saves a PDF with real text.
  */
 function PrintView({ layout, pages, items }: { layout: Layout; pages: Page[]; items: Item[] }) {
+  const bleed = layout.bleed ?? 0;
+  // The printed sheet is the page plus its bleed, plus room for crop marks if they are on.
+  const pad = bleed + (layout.marks ? MARK_GAP + MARK_LENGTH : 0);
+  const sheetW = layout.w + pad * 2;
+  const sheetH = layout.h + pad * 2;
+  const pt = (v: number) => `${v}pt`;
+
+  // Two marks at each corner of the trimmed page: one horizontal, one vertical.
+  const marks: CSSProperties[] = [];
+  if (layout.marks) {
+    for (const x of [pad, pad + layout.w]) {
+      for (const y of [pad, pad + layout.h]) {
+        const outX = x === pad ? 0 : sheetW - MARK_LENGTH;
+        const outY = y === pad ? 0 : sheetH - MARK_LENGTH;
+        marks.push({ left: pt(outX), top: pt(y - 0.25), width: pt(MARK_LENGTH), height: '0.5pt' });
+        marks.push({ left: pt(x - 0.25), top: pt(outY), width: '0.5pt', height: pt(MARK_LENGTH) });
+      }
+    }
+  }
+
   return createPortal(
     <div className="print-root">
-      <style>{`@page { size: ${layout.w}pt ${layout.h}pt; margin: 0; }`}</style>
+      <style>{`@page { size: ${sheetW}pt ${sheetH}pt; margin: 0; }`}</style>
       {pages.map((page) => {
         const location = pageLocation(page.id);
         return (
-          <div key={page.id} className="print-page" style={{ width: `${layout.w}pt`, height: `${layout.h}pt` }}>
-            {items
-              .filter((it) => it.location === location)
-              .map((it) => (
-                <div key={it.id} className={`item item-${it.type} on-page`} style={boxStyle(it, 'pt')}>
-                  {it.type === 'image' && <img src={it.src} alt="" />}
-                  {it.type === 'text' && (
-                    <div className="text" style={textStyle(it, 'pt')}>
-                      {it.text}
+          <div key={page.id} className="print-page" style={{ width: pt(sheetW), height: pt(sheetH) }}>
+            {/* Everything outside the bleed is cut off; inside it, frames keep their page positions. */}
+            <div
+              className="print-bleed"
+              style={{
+                left: pt(pad - bleed),
+                top: pt(pad - bleed),
+                width: pt(layout.w + bleed * 2),
+                height: pt(layout.h + bleed * 2),
+              }}
+            >
+              <div className="print-trim" style={{ left: pt(bleed), top: pt(bleed) }}>
+                {items
+                  .filter((it) => it.location === location)
+                  .map((it) => (
+                    <div key={it.id} className={`item item-${it.type} on-page`} style={boxStyle(it, 'pt')}>
+                      {it.type === 'image' && <img src={it.src} alt="" />}
+                      {it.type === 'text' && (
+                        <div className="text" style={textStyle(it, 'pt')}>
+                          {it.text}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
+                  ))}
+              </div>
+            </div>
+            {marks.map((style, i) => (
+              <div key={i} className="crop-mark" style={style} />
+            ))}
           </div>
         );
       })}

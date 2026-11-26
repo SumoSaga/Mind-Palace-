@@ -49,6 +49,10 @@ export interface Layout {
   w: number;
   h: number;
   margin: number;
+  /** Extra area past the trim edge, in points, for art that runs off the page. */
+  bleed?: number;
+  /** Print crop marks showing where to trim. */
+  marks?: boolean;
   /** Facing pages are shown as spreads, as in a book. */
   facing: boolean;
 }
