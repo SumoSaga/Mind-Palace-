@@ -11,7 +11,7 @@ import {
   useStories,
 } from './store';
 import type { Item } from './store';
-import { afterHeadingMarker, parseMarkup, renderHtml } from './markup';
+import { afterHeadingMarker, isHeadingLine, isImageLine, parseMarkup, renderHtml } from './markup';
 import type { Line } from './markup';
 
 /**
@@ -137,7 +137,14 @@ function fitFrame(text: string, lines: Line[], breaks: number[], pos: number, fr
     lo = a >= first ? a : -1;
   }
 
-  if (lo === -1) return { start, end: start, next: start, count: guess }; // not even one word fits
+  if (lo === -1) {
+    // A picture too tall for the frame is placed anyway (it is shown scaled down
+    // to fit), so one large picture cannot hold up the rest of the story.
+    let lineEnd = text.indexOf('\n', start);
+    if (lineEnd === -1) lineEnd = text.length;
+    if (isImageLine(text.slice(start, lineEnd))) return { start, end: lineEnd, next: lineEnd, count: 1 };
+    return { start, end: start, next: start, count: guess }; // not even one word fits
+  }
   let next = breaks[lo];
   // Keep a heading with what follows: if the frame would end on a heading while
   // more text remains, move the heading to the next frame instead.
@@ -146,7 +153,7 @@ function fitFrame(text: string, lines: Line[], breaks: number[], pos: number, fr
     const lineStart = text.lastIndexOf('\n', lastChar) + 1;
     const lineEnd = text.indexOf('\n', lineStart);
     const wholeLineHere = lineEnd === -1 ? false : lineEnd <= next;
-    if (lineStart > start && wholeLineHere && /^#{1,3} /.test(text.slice(lineStart, lineStart + 4))) {
+    if (lineStart > start && wholeLineHere && isHeadingLine(text, lineStart)) {
       next = lineStart;
     }
   }

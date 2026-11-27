@@ -15,6 +15,7 @@ const TYPE_WORD: Record<Item['type'], string> = {
   pdf: 'PDF',
   video: 'Video',
   link: 'Link',
+  model: '3D model',
 };
 
 function titleOf(item: Item, layouts: Layout[]): string {

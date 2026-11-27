@@ -145,3 +145,56 @@ export async function checkLink(input) {
     clearTimeout(timer);
   }
 }
+
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const MAX_IMAGE_BYTES = 40 * 1024 * 1024;
+
+/** Google serves the pictures inside Google Docs from this family of addresses, and only these are fetched. */
+export const isGoogleImageHost = (hostname) => /(^|\.)googleusercontent\.com$/i.test(hostname);
+
+/**
+ * Downloads a picture that sits inside a Google Doc. The Docs API hands out a
+ * short-lived address for each picture; a web page cannot read those itself,
+ * so the server collects the picture for it.
+ * @returns {Promise<{ type: string, bytes: Buffer }>}
+ */
+export async function fetchGoogleImage(input) {
+  let url;
+  try {
+    url = new URL(String(input).trim());
+  } catch {
+    throw new LinkError('That does not look like a picture address.');
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    let response;
+    for (let hop = 0; ; hop++) {
+      if (url.protocol !== 'https:' || !isGoogleImageHost(url.hostname)) throw new LinkError('Only pictures from Google Docs can be copied in this way.');
+      await assertPublic(url);
+      response = await fetch(url, { redirect: 'manual', signal: controller.signal });
+      const location = response.headers.get('location');
+      if (response.status < 300 || response.status >= 400 || !location) break;
+      if (hop >= MAX_REDIRECTS) throw new LinkError('That picture redirects too many times.');
+      await response.body?.cancel();
+      url = new URL(location, url);
+    }
+    if (!response.ok) throw new LinkError('Google would not hand over that picture. Load the document again and retry.');
+    const type = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    if (!IMAGE_TYPES.has(type)) throw new LinkError('That picture is in a format that cannot be shown.');
+    if (Number(response.headers.get('content-length') ?? 0) > MAX_IMAGE_BYTES) throw new LinkError('That picture is too large.');
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of response.body) {
+      size += chunk.length;
+      if (size > MAX_IMAGE_BYTES) throw new LinkError('That picture is too large.');
+      chunks.push(chunk);
+    }
+    return { type, bytes: Buffer.concat(chunks) };
+  } catch (err) {
+    if (err instanceof LinkError) throw err;
+    throw new LinkError(err?.name === 'AbortError' ? 'The picture took too long to download.' : 'The picture could not be downloaded.');
+  } finally {
+    clearTimeout(timer);
+  }
+}

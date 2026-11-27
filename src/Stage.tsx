@@ -15,6 +15,7 @@ function label(item: Item): string {
   if (item.type === 'layout') return 'Layout';
   if (item.type === 'embed' || item.type === 'link') return item.label ?? 'Link';
   if (item.type === 'pdf' || item.type === 'video') return item.label ?? (item.type === 'pdf' ? 'PDF' : 'Video');
+  if (item.type === 'model') return item.label ?? '3D model';
   const text = (item.text ?? '').trim().replace(/\s+/g, ' ');
   return text ? (text.length > 28 ? `${text.slice(0, 28)}…` : text) : 'Text';
 }
@@ -93,7 +94,7 @@ export function Stage({
   const full = items.find((it) => it.id === fullId);
   // A video or live page goes full screen by growing in place, not by being
   // loaded a second time, so it carries on playing from where it was.
-  const fullInPlace = !!full && (full.type === 'embed' || full.type === 'video');
+  const fullInPlace = !!full && (full.type === 'embed' || full.type === 'video' || full.type === 'model');
   const [windowSize, setWindowSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => {
     const onResize = () => setWindowSize({ w: window.innerWidth, h: window.innerHeight });

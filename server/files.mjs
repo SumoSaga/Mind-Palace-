@@ -30,11 +30,27 @@ const ALLOWED = new Set([
   'image/jpeg',
   'image/webp',
   'image/gif',
+  // 3D models
+  'model/gltf-binary',
+  'model/gltf+json',
+  'model/stl',
+  'model/obj',
 ]);
 
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
+}
+
+/** Saves data the server fetched itself (a picture from a Google Doc). */
+export async function storeBytes(type, bytes) {
+  if (!ALLOWED.has(type)) throw new Error('unsupported type');
+  await mkdir(DIR, { recursive: true });
+  const id = randomUUID();
+  const file = path.join(DIR, id);
+  await writeFile(file, bytes);
+  await writeFile(`${file}.json`, JSON.stringify({ type, size: bytes.length }));
+  return { id, url: `/files/${id}` };
 }
 
 export async function handleFiles(req, res) {

@@ -4,6 +4,7 @@ import { Desk } from './Desk';
 import { DeviceDialog } from './DeviceDialog';
 import { Dock } from './Dock';
 import { LayoutEditor } from './LayoutEditor';
+import { Library } from './library/Library';
 import { Overview } from './Overview';
 import { Stage } from './Stage';
 import { thisDevice } from './sync';
@@ -27,6 +28,7 @@ export function App() {
   const refineId = useRefineId();
   const [naming, setNaming] = useState(!thisDevice.named);
   const busy = !!openLayout || !!refineId || naming;
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   function changeMode(next: Mode) {
     setSelected(null);
@@ -54,7 +56,21 @@ export function App() {
       {mode === 'overview' && (
         <Overview onOpenLayout={setOpenLayout} onOpenCanvas={() => changeMode('canvas')} onOpenStage={() => changeMode('stage')} />
       )}
-      <Dock mode={mode} setMode={changeMode} selected={selected} onSent={() => setSelected(null)} />
+      <Dock
+        mode={mode}
+        setMode={changeMode}
+        selected={selected}
+        onSent={() => setSelected(null)}
+        libraryOpen={libraryOpen}
+        onToggleLibrary={() => setLibraryOpen((open) => !open)}
+      />
+      {libraryOpen && !busy && (
+        <Library
+          // On your own Stage, new things go to this device; otherwise to "Not on a device".
+          defaultLocation={mode === 'stage' ? thisDevice.id : 'desk'}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
       {openLayout && <LayoutEditor key={openLayout} layoutId={openLayout} onClose={closeLayout} />}
       {refineId && <RefineEditor key={refineId} itemId={refineId} />}
       {/* The first time a device opens Mind Palace, it is asked for a name and type. */}

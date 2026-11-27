@@ -102,7 +102,7 @@ export function AddBar({ location, place, onAdded, onOpenLayout }: Props) {
       >
         Add text
       </button>
-      <button onClick={() => fileRef.current?.click()} title="Add images, PDFs or videos (MP4, WebM)">
+      <button onClick={() => fileRef.current?.click()} title="Add images, PDFs, videos (MP4, WebM) or 3D models (GLB, STL, OBJ)">
         {uploading ? 'Uploading…' : 'Add file'}
       </button>
       <button onClick={() => setLinking(true)} title="A video, a Google Doc, Sheet or Slides file, or any web page">
@@ -121,7 +121,7 @@ export function AddBar({ location, place, onAdded, onOpenLayout }: Props) {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*,application/pdf,video/mp4,video/webm"
+        accept="image/*,application/pdf,video/mp4,video/webm,.glb,.gltf,.stl,.obj"
         multiple
         hidden
         onChange={(e) => {

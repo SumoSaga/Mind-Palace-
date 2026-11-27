@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { configProblems, cookieHeader, makeSession, readConfig, readSession, verifyGoogleToken } from './auth.mjs';
 import { AiError, aiAvailable, rankLayouts } from './ai.mjs';
-import { handleFiles } from './files.mjs';
-import { checkLink, LinkError } from './link.mjs';
+import { handleFiles, storeBytes } from './files.mjs';
+import { checkLink, fetchGoogleImage, LinkError } from './link.mjs';
 import { createPairing, isLocalRequest, lanAddresses, remoteAddressOf } from './pairing.mjs';
 import { createRooms, validRoomName } from './rooms.mjs';
 import { handleStatic } from './static.mjs';
@@ -138,12 +138,17 @@ async function handlePair(req, res, pathname) {
 }
 
 /** Inspecting a web address before it is added to the Desk; see link.mjs. */
-async function handleLink(req, res) {
+async function handleLink(req, res, pathname) {
   if (req.method !== 'POST') return json(res, 404, { error: 'Not found' });
   if (!userOf(req)) return json(res, 401, { error: 'Connect this device first.' });
   if (!sameOrigin(req)) return json(res, 403, { error: 'Not allowed from another site.' });
   try {
     const { url } = await readJson(req, 8 * 1024);
+    if (pathname === '/link/image') {
+      // Copies a picture out of a Google Doc into the file store.
+      const { type, bytes } = await fetchGoogleImage(url);
+      return json(res, 201, await storeBytes(type, bytes));
+    }
     return json(res, 200, await checkLink(url));
   } catch (err) {
     if (err instanceof LinkError) return json(res, 422, { error: err.message });
@@ -173,7 +178,7 @@ const server = http.createServer((req, res) => {
   let work;
   if (pathname.startsWith('/auth/')) work = handleAuth(req, res, pathname);
   else if (pathname === '/pair' || pathname.startsWith('/pair/')) work = handlePair(req, res, pathname);
-  else if (pathname === '/link/check') work = handleLink(req, res);
+  else if (pathname === '/link/check' || pathname === '/link/image') work = handleLink(req, res, pathname);
   else if (pathname.startsWith('/ai/')) work = handleAi(req, res, pathname);
   else if (pathname === '/files' || pathname.startsWith('/files/')) {
     if (!userOf(req)) work = Promise.resolve(json(res, 401, { error: 'Sign in first.' }));

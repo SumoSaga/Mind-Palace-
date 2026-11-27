@@ -59,13 +59,13 @@ Step 3 (linked text frames), first slice:
 
 - Mixed styles inside text, written as light markup: start a line with `#`, `##` or `###` for headings, and wrap words in `**bold**` or `*italic*`. The markers are hidden except while editing. A heading is never left alone at the bottom of a frame. This applies to every text item, on the Desk as well. See `src/markup.ts`.
 
-- Google Docs bridge (pull and refresh): "From Google Doc" in the editor loads a doc by its link, converts headings, bold and italic to markup, and places the whole doc or one top-level section on the page, optionally flowing it across pages. Text placed this way remembers its doc and section; "Refresh from doc" re-reads the doc, shows which paragraphs changed, and replaces the text only if you accept. Docs with no heading styles have their short all-bold lines treated as headings. See `src/gdocs/`.
+- Google Docs bridge (pull and refresh): "From Google Doc" in the editor loads a doc by its link and places the whole doc or one top-level section on the page, optionally flowing it across pages. What comes across: headings (heading styles, or lines simply set in larger text), bold, italic, bold-italic, underline, centred / right-aligned / justified paragraphs, bulleted and numbered lists with their nesting, and pictures at the size they have in the doc. Pictures are copied into Mind Palace's own file store (the server fetches them from Google, and only from Google's picture addresses), so layouts do not depend on Google to show them. Fonts and colours come from the layout's theme; tables become one line per row. Text placed this way remembers its doc and section; "Refresh from doc" re-reads the doc, shows which paragraphs changed, and replaces the text only if you accept. Docs with no headings of either kind have their short all-bold lines treated as headings. See `src/gdocs/` and `src/markup.ts`.
 
   Setup, once: create a Google Cloud project, enable the Google Docs API, set the OAuth consent screen to External/Testing with yourself as a test user, create an OAuth client ID (Web application) with `http://localhost:5173` as an authorised JavaScript origin, and put `VITE_GOOGLE_CLIENT_ID=<the id>` in a file named `.env.local`. The app only asks for read-only access to Docs, and the access token is kept in memory only.
 
   Check the converter with `node scripts/test-gdocs.mjs`.
 
-- Push to doc: text pulled from a Google Doc can be written back. "Push to doc" replaces that section (or the whole doc) with the layout's text, restoring headings, bold and italic. It asks Google for edit access only at that point. It refuses, changing nothing, if the doc has changed since the text was pulled or if that part of the doc contains lists, tables or images. The planning logic is in `src/gdocs/push.ts`; check it with `node scripts/test-gdocs-push.mjs`.
+- Push to doc: text pulled from a Google Doc can be written back. "Push to doc" replaces that section (or the whole doc) with the layout's text, restoring headings, alignment, bold, italic and underline. It asks Google for edit access only at that point. It refuses, changing nothing, if the doc has changed since the text was pulled or if that part of the doc contains lists, tables or images. The planning logic is in `src/gdocs/push.ts`; check it with `node scripts/test-gdocs-push.mjs`.
 - Links on the Desk: "Add link" shows a Google Doc, Sheet or Slides file, or a YouTube or Vimeo video, live in a frame that moves and resizes like any item and can be sent to a Stage. Double-click to use the page inside; click away to move it again. See `src/embed.ts`.
 
 Not built yet in step 3: merging doc changes with layout edits (a refresh replaces the text), formatting buttons (markup is typed by hand), separate fonts or colours for headings, paragraph spacing and indents, control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
@@ -104,7 +104,7 @@ Windows (live pages, videos and PDFs):
 
 - The content is always live: a single click or tap goes straight to the video's controls, the page, or the PDF's buttons. There is no separate "use" mode.
 - The title bar always moves the window, with a mouse or a finger, while the content keeps running. The bar also has buttons for opening in a new tab, full screen, and the menu.
-- The marked bottom-right corner resizes it. Holding the title bar with one finger and pinching with another also resizes it.
+- The marked bottom-right corner resizes it. On a touch screen, touching the title bar puts the window in arrange mode for a few seconds: a tinted cover sits over the content, and a pinch anywhere on the window resizes it, a drag moves it, and a quick tap hands the content back. (A web page cannot see touches that land inside another site's player, such as a YouTube video, which is why the cover is needed.) Holding the title bar with one finger and pinching with another also works.
 - While any item is being moved, live pages and videos let the pointer pass through, so a drag is not interrupted when it crosses one.
 
 Devices and Stages:
@@ -132,6 +132,14 @@ Connecting devices (the home setup, without Google sign-in):
 - See `server/pairing.mjs`; check it with `node scripts/test-pairing.mjs`.
 
 `npm run dev` starts two things: Vite, which serves the app, and the Mind Palace server (`server/sync-server.mjs`), which relays changes between devices, saves workspaces, holds the file store and handles sign-in. Workspaces are saved to `data/spaces/` and uploaded files to `data/files/`; back up the `data` folder to back up everything.
+
+
+## Library (Google Drive) and 3D models
+
+- "Library" in the dock opens a panel that browses your Google Drive: Recent, My Drive (with folders), Docs, Images and 3D, plus search. Click a file to add it to the current Stage (or to "Not on a device" from the Overview), or drag it out of the panel onto a Stage or a device.
+- Google Docs, Sheets and Slides arrive as live windows. Images, PDFs, videos and 3D models are downloaded and copied into Mind Palace's file store. Anything else becomes a link card.
+- It asks Google for read-only access to Drive, and works only on the computer running the app (`http://localhost:5173`), because that is the address Google has been told about. Setup, once: enable the **Google Drive API** in the same Google Cloud project used for Docs.
+- 3D models (GLB, glTF, STL, OBJ) open in a window you can orbit, zoom and pan; "Add file" accepts them too. Colouring models is not built yet. See `src/library/`, `src/ModelView.tsx`; check the file rules with `node scripts/test-library.mjs`.
 
 ## Hosting it
 

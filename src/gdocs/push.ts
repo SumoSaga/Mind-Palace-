@@ -1,7 +1,7 @@
 /**
  * Plans how to write a layout's text back into the Google Doc it came from:
  * which range of the doc to replace, and the requests that replace it and
- * restore headings, bold and italic.
+ * restore headings, alignment, bold, italic and underline.
  *
  * Writing to someone's document is the riskiest thing this app does, so the
  * plan refuses whenever it cannot be sure of a clean result:
@@ -108,16 +108,20 @@ export function planPush(doc: GoogleDoc, section: string | null, pulledText: str
   }
 
   // Turn the layout text into paragraphs with heading levels and styled runs.
-  const paragraphs: Array<{ text: string; level: number; runs: Array<{ from: number; to: number; bold: boolean; italic: boolean }> }> = [];
+  type Run = { from: number; to: number; bold: boolean; italic: boolean; underline: boolean };
+  const paragraphs: Array<{ text: string; level: number; align: string; runs: Run[] }> = [];
   for (const line of parseMarkup(newText)) {
     let text = '';
-    const runs: Array<{ from: number; to: number; bold: boolean; italic: boolean }> = [];
+    const runs: Run[] = [];
     for (const seg of line.segments) {
       const piece = newText.slice(seg.from, seg.to);
-      if (seg.bold || seg.italic) runs.push({ from: text.length, to: text.length + piece.length, bold: seg.bold, italic: seg.italic });
+      if (seg.bold || seg.italic || seg.underline) {
+        runs.push({ from: text.length, to: text.length + piece.length, bold: seg.bold, italic: seg.italic, underline: seg.underline });
+      }
       text += piece;
     }
-    if (text.trim()) paragraphs.push({ text, level: line.level, runs });
+    const align = line.align === 'center' ? 'CENTER' : line.align === 'right' ? 'END' : line.align === 'justify' ? 'JUSTIFIED' : 'START';
+    if (text.trim()) paragraphs.push({ text, level: line.level, align, runs });
   }
   if (!paragraphs.length) return { ok: false, reason: 'There is no text to push.' };
 
@@ -133,8 +137,8 @@ export function planPush(doc: GoogleDoc, section: string | null, pulledText: str
   requests.push({
     updateTextStyle: {
       range: { startIndex: start, endIndex: start + inserted.length },
-      textStyle: { bold: false, italic: false },
-      fields: 'bold,italic',
+      textStyle: { bold: false, italic: false, underline: false },
+      fields: 'bold,italic,underline',
     },
   });
   let offset = start;
@@ -143,16 +147,16 @@ export function planPush(doc: GoogleDoc, section: string | null, pulledText: str
       updateParagraphStyle: {
         // The range includes the paragraph's line break.
         range: { startIndex: offset, endIndex: offset + p.text.length + 1 },
-        paragraphStyle: { namedStyleType: p.level ? `HEADING_${p.level}` : 'NORMAL_TEXT' },
-        fields: 'namedStyleType',
+        paragraphStyle: { namedStyleType: p.level ? `HEADING_${p.level}` : 'NORMAL_TEXT', alignment: p.align },
+        fields: 'namedStyleType,alignment',
       },
     });
     for (const run of p.runs) {
       requests.push({
         updateTextStyle: {
           range: { startIndex: offset + run.from, endIndex: offset + run.to },
-          textStyle: run.bold ? { bold: true } : { italic: true },
-          fields: run.bold ? 'bold' : 'italic',
+          textStyle: { bold: run.bold, italic: run.italic, underline: run.underline },
+          fields: 'bold,italic,underline',
         },
       });
     }

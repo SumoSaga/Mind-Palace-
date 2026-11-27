@@ -5,6 +5,7 @@ import { fillTemplate, valueOf } from './cards/table';
 import { deviceAt, highlightDevice } from './Dock';
 import type { FlowInfo } from './flow';
 import { renderAll } from './markup';
+import { ModelView } from './ModelView';
 import { PdfView } from './PdfView';
 import type { Point } from './hooks';
 import { bringToFront, sendItem, updateItem } from './store';
@@ -64,6 +65,8 @@ export function itemHtml(item: Item, flow: FlowInfo | undefined, record?: Record
 }
 
 const MIN_SIZE = 12;
+/** How long a window stays in arrange mode after the last pinch or drag. */
+const ARRANGE_LINGER_MS = 3500;
 
 /** A drag or pinch in progress on an item. */
 interface Gesture {
@@ -149,7 +152,7 @@ export function ItemView({
   const [editing, setEditing] = useState(false);
   const busy = useBgStatus(item.id);
   /** A window: a live page, video or PDF, with a title bar to move it by. */
-  const framed = item.type === 'embed' || item.type === 'pdf' || item.type === 'video';
+  const framed = item.type === 'embed' || item.type === 'pdf' || item.type === 'video' || item.type === 'model';
   const ownText = item.type === 'text' && !flow ? (item.text ?? '') : null;
   const ownHtml = useMemo(
     () => (ownText === null ? '' : renderAll(record ? fillTemplate(ownText, record) : ownText)),
@@ -162,9 +165,23 @@ export function ItemView({
   const live = useRef({ item, toWorld, change, onDragEnd });
   live.current = { item, toWorld, change, onDragEnd };
   const gesture = useRef<Gesture | null>(null);
+  /**
+   * Arrange mode, for touch screens. A web page cannot see fingers that land
+   * inside another site's player, so a pinch over a live video cannot be
+   * noticed directly. Touching a window's title bar therefore lays a cover
+   * over its content for a few seconds: while it is there, a pinch or drag
+   * anywhere on the window resizes or moves it. A tap on the cover, or a short
+   * wait, removes it and the content is live again.
+   */
+  const [arranging, setArranging] = useState(false);
+  const arrangeTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(arrangeTimer.current), []);
 
   useEffect(() => {
-    if (!selected) setEditing(false);
+    if (!selected) {
+      setEditing(false);
+      setArranging(false);
+    }
   }, [selected]);
 
   // Stop listening if the item goes away in the middle of a drag or pinch.
@@ -242,8 +259,10 @@ export function ItemView({
       return;
     }
     // A window is moved by its title bar. A press anywhere else in it belongs
-    // to the content (the video's controls, the PDF's buttons), so it is left alone.
-    if (framed && !(e.target as HTMLElement).closest('.embed-bar')) {
+    // to the content (the video's controls, the PDF's buttons), so it is left
+    // alone, unless the window is in arrange mode (see `arranging`).
+    const onCover = !!(e.target as HTMLElement).closest('.arrange-cover');
+    if (framed && !onCover && !(e.target as HTMLElement).closest('.embed-bar')) {
       e.stopPropagation();
       onSelect(item.id);
       bringToFront(item.id);
@@ -251,6 +270,12 @@ export function ItemView({
     }
     e.stopPropagation();
     e.preventDefault();
+    // Touching a window's title bar puts it in arrange mode.
+    window.clearTimeout(arrangeTimer.current);
+    if (framed && e.pointerType === 'touch') setArranging(true);
+    const pressedAt = Date.now();
+    const pressedWhere = { x: e.clientX, y: e.clientY };
+    let travelled = 0;
     const active = gesture.current;
     if (active) {
       // A second finger landing on the item itself.
@@ -267,6 +292,7 @@ export function ItemView({
       const g = gesture.current;
       if (!g || !g.touches.has(ev.pointerId)) return;
       g.touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      travelled = Math.max(travelled, Math.hypot(ev.clientX - pressedWhere.x, ev.clientY - pressedWhere.y));
       if (g.pinch) {
         const [a, b] = [...g.touches.values()];
         const scale = Math.hypot(a.x - b.x, a.y - b.y) / g.pinch.dist;
@@ -295,6 +321,12 @@ export function ItemView({
       g.stop();
       gesture.current = null;
       highlightDevice(null);
+      // A quick tap on the arrange cover means "I am done arranging": the
+      // content goes live again. Otherwise arrange mode lingers a few seconds,
+      // long enough for another pinch or drag, then ends by itself.
+      const tapped = onCover && !g.pinched && travelled < 8 && Date.now() - pressedAt < 350;
+      if (tapped) setArranging(false);
+      else arrangeTimer.current = window.setTimeout(() => setArranging(false), ARRANGE_LINGER_MS);
       // Dropped on a device in the dock: send it to that Stage, and put its
       // marker back where the item sat before the drag. Not after a pinch.
       const target = !g.pinched && ev.type === 'pointerup' ? deviceAt(ev.clientX, ev.clientY) : null;
@@ -503,6 +535,12 @@ export function ItemView({
           )}
           {item.type === 'video' && <video src={item.url} controls preload="metadata" playsInline />}
           {item.type === 'pdf' && item.url && <PdfView url={item.url} />}
+          {item.type === 'model' && item.url && <ModelView url={item.url} name={item.label ?? ''} />}
+          {arranging && !fullScreen && (
+            <div className="arrange-cover">
+              <span>Pinch to resize · drag to move · tap to use</span>
+            </div>
+          )}
           {/* A corner to resize by, always there, since the content itself takes the pointer. */}
           {!fullScreen && <div className="window-grip" title="Drag to resize" onPointerDown={(e) => onResizePointerDown(e, 1, 1)} />}
         </>

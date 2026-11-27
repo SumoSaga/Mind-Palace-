@@ -211,7 +211,7 @@ export function Desk({ active, selected, setSelected, onOpenLayout, onClose }: P
         <input
           ref={fileRef}
           type="file"
-          accept="image/*,application/pdf,video/mp4,video/webm"
+          accept="image/*,application/pdf,video/mp4,video/webm,.glb,.gltf,.stl,.obj"
           multiple
           hidden
           onChange={(e) => {

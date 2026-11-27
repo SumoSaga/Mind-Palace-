@@ -1,4 +1,4 @@
-import { convertDoc, parseDocId } from './convert';
+import { convertDoc, imageAddresses, parseDocId, unresolvedImages, withImageAddresses } from './convert';
 import type { ConvertedDoc, GoogleDoc } from './convert';
 import { planPush } from './push';
 import { getSession } from '../session';
@@ -72,7 +72,22 @@ export function loadGoogleScript(): Promise<void> {
   return scriptLoading;
 }
 
+/** Read-only access to the user's Google Drive, for the Library: listing files and downloading them. */
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+
 const tokens = new Map<string, { value: string; expires: number }>();
+
+/** An access token for browsing Google Drive, opening Google's sign-in window if needed. */
+export const getDriveToken = () => getToken(DRIVE_SCOPE);
+
+/** Whether Drive has already been connected in this session, so no sign-in window is needed. */
+export function isDriveConnected(): boolean {
+  const cached = tokens.get(DRIVE_SCOPE);
+  return !!cached && cached.expires > Date.now() + 60_000;
+}
+
+/** Forgets the Drive token, after Google has rejected it. */
+export const forgetDriveToken = () => tokens.delete(DRIVE_SCOPE);
 
 /** Returns an access token for a scope, opening Google's sign-in window if one is needed. */
 async function getToken(scope: string): Promise<string> {
@@ -131,7 +146,7 @@ async function googleError(response: Response): Promise<Error> {
 
 async function fetchDoc(docId: string, accessToken: string): Promise<GoogleDoc> {
   const response = await fetch(
-    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}?fields=title,body.content`,
+    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}?fields=title,body.content,inlineObjects,lists`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   if (!response.ok) throw await googleError(response);
@@ -144,6 +159,41 @@ export async function loadGoogleDoc(linkOrId: string): Promise<ConvertedDoc & { 
   if (!docId) throw new Error('That does not look like a Google Docs link.');
   const doc = await fetchDoc(docId, await getToken(READ_SCOPE));
   return { ...convertDoc(doc), docId };
+}
+
+/**
+ * Copies the pictures named in `text` out of the Google Doc and into Mind
+ * Palace's file store, and returns the text pointing at the copies. Pictures
+ * already copied (found in `previous`, the text being replaced) are reused.
+ * `missing` counts pictures that could not be copied; those are left out of the layout.
+ */
+export async function copyDocImages(
+  text: string,
+  imageSources: Record<string, string>,
+  previous = '',
+): Promise<{ text: string; missing: number }> {
+  const addresses = imageAddresses(previous);
+  let missing = 0;
+  const wanted = [...new Set(unresolvedImages(text))].filter((id) => !addresses[id]);
+  // A few at a time, so a long rulebook does not open dozens of downloads at once.
+  const queue = [...wanted];
+  const worker = async () => {
+    for (let id = queue.shift(); id; id = queue.shift()) {
+      try {
+        const response = await fetch('/link/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: imageSources[id] }),
+        });
+        if (!response.ok) throw new Error();
+        addresses[id] = ((await response.json()) as { url: string }).url;
+      } catch {
+        missing++;
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  return { text: withImageAddresses(text, addresses), missing };
 }
 
 /**

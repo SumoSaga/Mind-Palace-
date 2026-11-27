@@ -10,7 +10,7 @@ import { newId } from './id';
  * copy to the sync server so changes travel between devices.
  */
 
-export type ItemType = 'text' | 'image' | 'layout' | 'embed' | 'pdf' | 'video' | 'link';
+export type ItemType = 'text' | 'image' | 'layout' | 'embed' | 'pdf' | 'video' | 'link' | 'model';
 
 export interface Item {
   id: string;
@@ -297,10 +297,10 @@ export function addStoryFrame(frame: NewItem, text: string, source?: StorySource
 }
 
 /** Replaces a story's whole text with a fresh pull from its source. */
-export function refreshStory(storyId: string, text: string) {
+export function refreshStory(storyId: string, text: string, pulledText = text) {
   const story = stories.get().find((s) => s.id === storyId);
   if (!story?.source) return;
-  stories.update(storyId, { text, source: { ...story.source, pulledAt: Date.now(), pulledText: text } });
+  stories.update(storyId, { text, source: { ...story.source, pulledAt: Date.now(), pulledText } });
 }
 
 /** Records that a story's text has been written to its source, which now reads `docText`. */

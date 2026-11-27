@@ -5,6 +5,7 @@ import { BackgroundButtons } from './bg/removeBackground';
 import { continueOnNextPage, flowToEnd, useFlow } from './flow';
 import { DEFAULT_FONT, FONT_GROUPS } from './fonts/fonts';
 import { PullDialog, PushDialog, RefreshDialog } from './gdocs/GoogleDocDialog';
+import { withoutImageAddresses } from './gdocs/convert';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import { ItemView } from './ItemView';
 import { CardDataDialog } from './cards/CardDataDialog';
@@ -663,10 +664,10 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
         )}
         {selStory?.source && (
           <button
-            disabled={selStory.text === selStory.source.pulledText}
+            disabled={withoutImageAddresses(selStory.text) === selStory.source.pulledText}
             onClick={() => setDocDialog('push')}
             title={
-              selStory.text === selStory.source.pulledText
+              withoutImageAddresses(selStory.text) === selStory.source.pulledText
                 ? 'This text has not been edited since it was pulled, so there is nothing to push.'
                 : `Write this text back into the Google Doc "${selStory.source.docTitle}".`
             }
@@ -865,7 +866,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
         <RefreshDialog
           story={selStory}
           onClose={() => setDocDialog(null)}
-          onAccept={(text) => refreshStory(selStory.id, text)}
+          onAccept={(text, pulledText) => refreshStory(selStory.id, text, pulledText)}
         />
       )}
     </div>

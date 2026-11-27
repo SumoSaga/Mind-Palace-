@@ -144,4 +144,18 @@ assert.match(planPush(original, 'Chapter One', sectionText(original, 'Chapter On
   assert.match(planPush(withTable, 'Prices', sectionText(withTable, 'Prices'), '# Prices\n\nEnd.').reason, /lists, tables/);
 }
 
+// Underline and alignment are written too.
+{
+  const plan = planPush(original, '(Before the first heading)', 'Preface line.', '{center} A __new__ ***preface***.');
+  assert.ok(plan.ok, plan.reason);
+  const styles = plan.requests.filter((r) => r.updateTextStyle).map((r) => r.updateTextStyle.textStyle);
+  assert.deepEqual(styles, [
+    { bold: false, italic: false, underline: false },
+    { bold: false, italic: false, underline: true },
+    { bold: true, italic: true, underline: false },
+  ]);
+  assert.equal(plan.requests.find((r) => r.updateParagraphStyle).updateParagraphStyle.paragraphStyle.alignment, 'CENTER');
+  assert.equal(plan.requests.find((r) => r.insertText).insertText.text, 'A new preface.\n');
+}
+
 console.log('gdocs push plan: all checks passed');

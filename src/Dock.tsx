@@ -13,6 +13,8 @@ interface Props {
   /** The item selected on the Desk, if any. Clicking a device sends it there. */
   selected: string | null;
   onSent: () => void;
+  libraryOpen: boolean;
+  onToggleLibrary: () => void;
 }
 
 /** Returns the id of the dock device under a screen position, if any. */
@@ -32,7 +34,7 @@ export function highlightDevice(id: string | null) {
  * Connection state, the Desk/Stage switch, and the devices in this space.
  * Devices are drop targets: drag an item onto one to send it to that Stage.
  */
-export function Dock({ mode, setMode, selected, onSent }: Props) {
+export function Dock({ mode, setMode, selected, onSent, libraryOpen, onToggleLibrary }: Props) {
   const connected = useConnected();
   const online = useDevices();
   const known = useKnownDevices();
@@ -74,6 +76,14 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
           My Stage{mine > 0 && <span className="count">{mine}</span>}
         </button>
       </div>
+
+      <button
+        className={`device library-button${libraryOpen ? ' open' : ''}`}
+        onClick={onToggleLibrary}
+        title="Browse your Google Drive and bring files in"
+      >
+        Library
+      </button>
 
       {[...online, ...offline].map((d) => {
         const isMine = d.id === thisDevice.id;

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import type { Story, StorySource } from '../store';
-import { summariseChanges } from './convert';
+import { summariseChanges, unresolvedImages, withoutImageAddresses } from './convert';
 import type { ConvertedDoc } from './convert';
-import { isGoogleConfigured, loadGoogleDoc, pushToGoogleDoc } from './google';
+import { copyDocImages, isGoogleConfigured, loadGoogleDoc, pushToGoogleDoc } from './google';
 
 /** Value of the section picker meaning "the whole document". */
 const WHOLE = '\u0000whole';
@@ -54,6 +54,7 @@ export function PullDialog({
   const [section, setSection] = useState(WHOLE);
   const [flowOn, setFlowOn] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [placed, setPlaced] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -70,18 +71,33 @@ export function PullDialog({
     }
   }
 
-  function place() {
-    if (!doc) return;
+  async function place() {
+    if (!doc || busy) return;
     const chosen = section === WHOLE ? null : section;
     const text = sectionText(doc, chosen);
     if (!text) return;
+    setBusy(true);
+    setError(null);
+    // Copy the section's pictures in first, so the layout does not depend on Google to show them.
+    const copied = await copyDocImages(text, doc.imageSources);
+    setBusy(false);
     onPlace(
-      text,
+      copied.text,
+      // What the doc said is remembered without picture addresses, so it can be compared with the doc later.
       { kind: 'gdoc', docId: doc.docId, docTitle: doc.title, section: chosen, pulledAt: Date.now(), pulledText: text },
       flowOn,
     );
-    onClose();
+    if (copied.missing) {
+      setPlaced(true);
+      setError(
+        `The text is placed, but ${copied.missing} ${copied.missing === 1 ? 'picture' : 'pictures'} could not be copied from the document. Use "Refresh from doc" later to try again.`,
+      );
+    } else {
+      onClose();
+    }
   }
+
+  const pictures = doc ? new Set(unresolvedImages(sectionText(doc, section === WHOLE ? null : section) ?? '')).size : 0;
 
   return (
     <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -104,11 +120,12 @@ export function PullDialog({
             <button disabled={busy || !link.trim()} onClick={() => void load()}>
               {busy ? 'Loading…' : doc ? 'Load again' : 'Sign in to Google and load'}
             </button>
-            {error && <p className="error">{error}</p>}
             {doc && (
               <>
                 <p>
-                  Loaded <b>{doc.title}</b>.
+                  Loaded <b>{doc.title}</b>. Headings, bold, italic, underline, alignment, lists and pictures come with
+                  it{pictures ? ` (${pictures} ${pictures === 1 ? 'picture' : 'pictures'} in this part)` : ''}. Fonts
+                  and colours come from the layout's theme.
                 </p>
                 <label className="field">
                   What to place
@@ -127,13 +144,14 @@ export function PullDialog({
                 </label>
               </>
             )}
+            {error && <p className="error">{error}</p>}
           </>
         )}
         <div className="modal-actions">
-          <button onClick={onClose}>{isGoogleConfigured() ? 'Cancel' : 'Close'}</button>
-          {doc && (
-            <button className="primary" onClick={place}>
-              Place on page
+          <button onClick={onClose}>{isGoogleConfigured() && !placed ? 'Cancel' : 'Close'}</button>
+          {doc && !placed && (
+            <button className="primary" disabled={busy} onClick={() => void place()}>
+              {busy ? 'Copying pictures…' : 'Place on page'}
             </button>
           )}
         </div>
@@ -177,7 +195,7 @@ export function PushDialog({
           <>
             <p>
               This replaces {where} in <b>{source.docTitle}</b> with the text from this layout, including its headings,
-              bold and italic.
+              bold, italic, underline and alignment.
             </p>
             <p>
               Google will ask for permission to edit your documents. If the document has changed since you pulled this
@@ -206,7 +224,8 @@ type RefreshState =
   | { step: 'idle' }
   | { step: 'loading' }
   | { step: 'same' }
-  | { step: 'changed'; text: string; added: string[]; removed: string[] }
+  | { step: 'changed'; text: string; imageSources: Record<string, string>; added: string[]; removed: string[] }
+  | { step: 'copying' }
   | { step: 'error'; message: string };
 
 /** Check the Google Doc a story came from, and show what changed before taking it. */
@@ -217,11 +236,12 @@ export function RefreshDialog({
 }: {
   story: Story;
   onClose: () => void;
-  onAccept: (text: string) => void;
+  /** Called with the text to show, and the same text as the doc has it (without picture addresses). */
+  onAccept: (text: string, pulledText: string) => void;
 }) {
   const source = story.source!;
   const [state, setState] = useState<RefreshState>({ step: 'idle' });
-  const editedHere = story.text !== source.pulledText;
+  const editedHere = withoutImageAddresses(story.text) !== source.pulledText;
 
   async function check() {
     setState({ step: 'loading' });
@@ -236,7 +256,7 @@ export function RefreshDialog({
       } else if (text === source.pulledText) {
         setState({ step: 'same' });
       } else {
-        setState({ step: 'changed', text, ...summariseChanges(source.pulledText, text) });
+        setState({ step: 'changed', text, imageSources: doc.imageSources, ...summariseChanges(source.pulledText, text) });
       }
     } catch (err) {
       setState({ step: 'error', message: err instanceof Error ? err.message : String(err) });
@@ -262,6 +282,7 @@ export function RefreshDialog({
           </button>
         )}
         {state.step === 'loading' && <p>Checking…</p>}
+        {state.step === 'copying' && <p>Copying pictures…</p>}
         {state.step === 'same' && <p>The document has not changed since this text was pulled.</p>}
         {state.step === 'error' && <p className="error">{state.message}</p>}
         {state.step === 'changed' && (
@@ -291,8 +312,12 @@ export function RefreshDialog({
           {state.step === 'changed' && (
             <button
               className="primary"
-              onClick={() => {
-                onAccept(state.text);
+              onClick={async () => {
+                const { text, imageSources } = state;
+                setState({ step: 'copying' });
+                // Pictures already in the layout are reused; only new ones are copied in.
+                const copied = await copyDocImages(text, imageSources, story.text);
+                onAccept(copied.text, text);
                 onClose();
               }}
             >
