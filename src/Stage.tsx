@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { AddBar } from './AddBar';
 import { usePanZoom } from './hooks';
 import { ItemMenu } from './ItemMenu';
 import type { MenuOption } from './ItemMenu';
@@ -73,10 +74,13 @@ function FullScreen({ item, onOpenLayout }: { item: Item; onOpenLayout: (layoutI
  * disturb the place it will return to on the Desk.
  */
 export function Stage({
-  onOpenDesk,
+  active,
+  onOpenOverview,
   onOpenLayout,
 }: {
-  onOpenDesk: () => void;
+  /** False while another view is showing. The Stage stays loaded so media keeps playing. */
+  active: boolean;
+  onOpenOverview: () => void;
   onOpenLayout: (layoutId: string) => void;
 }) {
   const items = useItems().filter((it) => it.location === thisDevice.id);
@@ -87,6 +91,15 @@ export function Stage({
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
   const full = items.find((it) => it.id === fullId);
+  // A video or live page goes full screen by growing in place, not by being
+  // loaded a second time, so it carries on playing from where it was.
+  const fullInPlace = !!full && (full.type === 'embed' || full.type === 'video');
+  const [windowSize, setWindowSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  useEffect(() => {
+    const onResize = () => setWindowSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // Give newly arrived items a place: in view, sized to fit this screen, each
   // a little down and right of the last so none hides another completely.
@@ -117,11 +130,22 @@ export function Stage({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFullId(null);
+      if (e.key === 'Escape' && active) setFullId(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [active]);
+
+  // The part of the surface that is on screen between the full-screen header
+  // and the dock, in surface coordinates: where a full-screen item is drawn.
+  const FULL_TOP = 50;
+  const FULL_BOTTOM = 68;
+  const fullBox = {
+    x: -view.x / view.k,
+    y: (FULL_TOP - view.y) / view.k,
+    w: windowSize.w / view.k,
+    h: Math.max(40, windowSize.h - FULL_TOP - FULL_BOTTOM) / view.k,
+  };
 
   function fitAll() {
     const root = rootRef.current;
@@ -160,12 +184,20 @@ export function Stage({
         >
           {items
             .filter((it) => it.sx !== undefined)
-            .map((it) => (
+            .map((it) => {
+              const filling = fullInPlace && it.id === fullId;
+              return (
               <ItemView
                 key={it.id}
-                // Shown at its place on this Stage, not its place on the Desk.
-                item={{ ...it, x: it.sx!, y: it.sy!, w: it.sw!, h: it.sh!, rot: 0 }}
-                selected={it.id === selected}
+                // Shown at its place on this Stage, not its place on the Desk;
+                // or filling the screen, if it is the one in full screen.
+                item={
+                  filling
+                    ? { ...it, ...fullBox, rot: 0, z: 1_000_000 }
+                    : { ...it, x: it.sx!, y: it.sy!, w: it.sw!, h: it.sh!, rot: 0 }
+                }
+                selected={!filling && it.id === selected}
+                fullScreen={filling}
                 onSelect={setSelected}
                 toWorld={toWorld}
                 noRotate
@@ -173,6 +205,7 @@ export function Stage({
                 onOpen={(item) => item.layoutId && onOpenLayout(item.layoutId)}
                 onMenu={(item, x, y) => setMenu({ id: item.id, x, y })}
                 onChange={(patch) => {
+                  if (filling) return; // nothing to move while it fills the screen
                   // Dropped on a device in the dock: send it there.
                   if (patch.location) return sendItem(it.id, patch.location);
                   updateItem(it.id, {
@@ -183,25 +216,35 @@ export function Stage({
                   });
                 }}
               />
-            ))}
+              );
+            })}
         </div>
       </div>
 
       <div className="toolbar">
         <span className="brand">{thisDevice.name}</span>
+        <AddBar
+          location={thisDevice.id}
+          place={() => {
+            const r = rootRef.current!.getBoundingClientRect();
+            return toWorld(r.left + r.width / 2, r.top + r.height / 2);
+          }}
+          onAdded={setSelected}
+          onOpenLayout={onOpenLayout}
+        />
         <button disabled={!items.length} onClick={fitAll} title="Show everything on this Stage">
           Fit all
         </button>
         <button onClick={() => setView({ x: 0, y: 0, k: 1 })} title="Reset view">
           {Math.round(view.k * 100)}%
         </button>
-        <button onClick={onOpenDesk}>Open the Desk</button>
+        <button onClick={onOpenOverview}>Overview</button>
       </div>
 
       {items.length === 0 && (
         <div className="stage-empty">
-          <p>Nothing has been sent to this device yet.</p>
-          <p>On the Desk, drag something onto this device in the bar below, or right-click it and choose Send to.</p>
+          <p>Nothing is on this device yet.</p>
+          <p>Add something with the buttons above, or send it here from the Overview or another device.</p>
         </div>
       )}
 
@@ -210,7 +253,9 @@ export function Stage({
       )}
 
       {full && (
-        <div className="stage-full">
+        // For a video or live page only the header is drawn here; the item
+        // itself is the one on the surface, grown to fill the screen behind it.
+        <div className={`stage-full${fullInPlace ? ' header-only' : ''}`}>
           <header>
             <span className="tile-title">{label(full)}</span>
             {others.length > 0 && (
@@ -231,9 +276,11 @@ export function Stage({
               Exit full screen
             </button>
           </header>
-          <div className="stage-full-body">
-            <FullScreen item={full} onOpenLayout={onOpenLayout} />
-          </div>
+          {!fullInPlace && (
+            <div className="stage-full-body">
+              <FullScreen item={full} onOpenLayout={onOpenLayout} />
+            </div>
+          )}
         </div>
       )}
     </div>

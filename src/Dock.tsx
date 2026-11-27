@@ -63,8 +63,12 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
       </span>
 
       <div className="views">
-        <button className={mode === 'desk' ? 'active' : ''} onClick={() => setMode('desk')}>
-          Desk
+        <button
+          className={mode !== 'stage' ? 'active' : ''}
+          onClick={() => setMode('overview')}
+          title="Every device and what is on it"
+        >
+          Overview
         </button>
         <button className={mode === 'stage' ? 'active' : ''} onClick={() => setMode('stage')}>
           My Stage{mine > 0 && <span className="count">{mine}</span>}

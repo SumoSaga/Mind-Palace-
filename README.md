@@ -88,6 +88,18 @@ Files on the Desk:
 - Like links, PDFs and videos move, resize and go to Stages; double-click to use them, click away to move them.
 - PDFs and videos are not stored inside the synced workspace. They are uploaded to a file store on the sync server (`server/files.mjs`, kept in `data/files/`, which Git ignores), and items point at them. Only PDF, MP4, WebM and common image types are accepted. Deleting an item does not yet delete its file.
 
+The three views:
+
+- Overview (the default on computers, and the "Overview" button in the dock): one panel per device listing what is on it, plus a "Not on a device" panel. Things can be added here, moved between devices by dragging a row or with "Move to", opened, and deleted. See `src/Overview.tsx`.
+- My Stage: this device's own surface. It has the same Add buttons, so things can be added straight onto a device.
+- Canvas ("Open canvas" on the "Not on a device" panel): the free-form shared canvas for things not on any device. This was previously the main Desk view.
+
+Media keeps playing:
+
+- The Stage and the canvas stay loaded while another view is showing, only hidden, so a video or live page on them carries on playing.
+- Putting a video or live page full screen grows the same player to fill the screen, instead of loading a second copy, so it continues from where it was.
+- Sending something to another device still restarts it there: it is a different browser.
+
 Devices and Stages:
 
 - The first time a device opens Mind Palace it is asked for a name and a type (phone, tablet, laptop, desktop PC or TV). Click the device's own entry in the dock to change them.

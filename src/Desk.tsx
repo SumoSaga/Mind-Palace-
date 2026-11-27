@@ -25,11 +25,13 @@ interface Props {
   selected: string | null;
   setSelected: (id: string | null) => void;
   onOpenLayout: (layoutId: string) => void;
+  /** Goes back to the Overview. */
+  onClose: () => void;
 }
 
 const MAX_NEW_IMAGE_WIDTH = 480;
 
-export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
+export function Desk({ active, selected, setSelected, onOpenLayout, onClose }: Props) {
   const items = useItems();
   const layouts = useLayouts();
   const known = useKnownDevices();
@@ -176,7 +178,8 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
       </div>
 
       <div className="toolbar">
-        <span className="brand">Mind Palace</span>
+        <button onClick={onClose}>← Overview</button>
+        <span className="brand">Canvas</span>
         <button onClick={() => addText(viewCentre())}>Add text</button>
         <button onClick={() => fileRef.current?.click()} title="Add images, PDFs or videos (MP4, WebM)">
           {uploading ? 'Uploading…' : 'Add file'}

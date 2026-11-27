@@ -40,6 +40,11 @@ interface Props {
   onChange?: (patch: Partial<Item>) => void;
   /** Hides the rotate handle, where rotation does not apply. */
   noRotate?: boolean;
+  /**
+   * The item is filling the screen: it is in use (touches go to its content),
+   * cannot be dragged, and shows no frame around it.
+   */
+  fullScreen?: boolean;
   /** Opens the item's menu (right-click, or its "more" button), at a screen position. */
   onMenu?: (item: Item, clientX: number, clientY: number) => void;
 }
@@ -129,6 +134,7 @@ export function ItemView({
   record,
   onChange,
   noRotate,
+  fullScreen,
   onMenu,
 }: Props) {
   /** Writes a move, resize, rotation or send. */
@@ -141,7 +147,7 @@ export function ItemView({
   const busy = useBgStatus(item.id);
   /** An embedded page being used: the mouse goes to the page, not to moving the item. */
   const framed = item.type === 'embed' || item.type === 'pdf' || item.type === 'video';
-  const using = framed && editing;
+  const using = framed && (editing || !!fullScreen);
   const ownText = item.type === 'text' && !flow ? (item.text ?? '') : null;
   const ownHtml = useMemo(
     () => (ownText === null ? '' : renderAll(record ? fillTemplate(ownText, record) : ownText)),
@@ -227,7 +233,7 @@ export function ItemView({
    * into a pinch, which resizes it. Lifting back to one finger carries on moving.
    */
   function onBodyPointerDown(e: ReactPointerEvent) {
-    if (editing) {
+    if (editing || fullScreen) {
       e.stopPropagation();
       return;
     }
@@ -358,7 +364,7 @@ export function ItemView({
 
   return (
     <div
-      className={`item item-${item.type}${framed ? ' item-framed' : ''}${selected ? ' selected' : ''}${editing ? ' editing' : ''}${unit === 'pt' ? ' on-page' : ''}${busy ? ' busy' : ''}`}
+      className={`item item-${item.type}${framed ? ' item-framed' : ''}${selected ? ' selected' : ''}${editing ? ' editing' : ''}${unit === 'pt' ? ' on-page' : ''}${busy ? ' busy' : ''}${fullScreen ? ' full-screen' : ''}`}
       ref={rootRef}
       style={boxStyle(item, unit)}
       onPointerDown={onBodyPointerDown}

@@ -4,21 +4,29 @@ import { Desk } from './Desk';
 import { DeviceDialog } from './DeviceDialog';
 import { Dock } from './Dock';
 import { LayoutEditor } from './LayoutEditor';
+import { Overview } from './Overview';
 import { Stage } from './Stage';
 import { thisDevice } from './sync';
 
-export type Mode = 'desk' | 'stage';
+/**
+ * The three main views:
+ *   overview - every device and what is on it
+ *   stage    - this device's own surface
+ *   canvas   - the shared canvas for things not on any device
+ */
+export type Mode = 'overview' | 'stage' | 'canvas';
 
 export function App() {
-  // Phones and TVs open on their own Stage; larger devices open on the Desk.
+  // Phones and TVs open on their own Stage; larger devices open on the Overview.
   const [mode, setMode] = useState<Mode>(
-    thisDevice.kind === 'phone' || thisDevice.kind === 'tv' ? 'stage' : 'desk',
+    thisDevice.kind === 'phone' || thisDevice.kind === 'tv' ? 'stage' : 'overview',
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [openLayout, setOpenLayout] = useState<string | null>(null);
   const closeLayout = useCallback(() => setOpenLayout(null), []);
   const refineId = useRefineId();
   const [naming, setNaming] = useState(!thisDevice.named);
+  const busy = !!openLayout || !!refineId || naming;
 
   function changeMode(next: Mode) {
     setSelected(null);
@@ -27,13 +35,25 @@ export function App() {
 
   return (
     <div className="app">
-      <Desk
-        active={mode === 'desk' && !openLayout && !refineId && !naming}
-        selected={selected}
-        setSelected={setSelected}
-        onOpenLayout={setOpenLayout}
-      />
-      {mode === 'stage' && <Stage onOpenDesk={() => changeMode('desk')} onOpenLayout={setOpenLayout} />}
+      {/*
+        The Stage and the canvas stay loaded while another view is showing, only
+        hidden. Unloading them would stop any video or music playing on them.
+      */}
+      <div className={`view${mode === 'canvas' ? '' : ' hidden'}`}>
+        <Desk
+          active={mode === 'canvas' && !busy}
+          selected={selected}
+          setSelected={setSelected}
+          onOpenLayout={setOpenLayout}
+          onClose={() => changeMode('overview')}
+        />
+      </div>
+      <div className={`view${mode === 'stage' ? '' : ' hidden'}`}>
+        <Stage active={mode === 'stage' && !busy} onOpenOverview={() => changeMode('overview')} onOpenLayout={setOpenLayout} />
+      </div>
+      {mode === 'overview' && (
+        <Overview onOpenLayout={setOpenLayout} onOpenCanvas={() => changeMode('canvas')} onOpenStage={() => changeMode('stage')} />
+      )}
       <Dock mode={mode} setMode={changeMode} selected={selected} onSent={() => setSelected(null)} />
       {openLayout && <LayoutEditor key={openLayout} layoutId={openLayout} onClose={closeLayout} />}
       {refineId && <RefineEditor key={refineId} itemId={refineId} />}
