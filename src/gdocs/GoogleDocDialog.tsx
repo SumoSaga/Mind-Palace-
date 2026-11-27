@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Story, StorySource } from '../store';
 import { summariseChanges } from './convert';
 import type { ConvertedDoc } from './convert';
-import { isGoogleConfigured, loadGoogleDoc } from './google';
+import { isGoogleConfigured, loadGoogleDoc, pushToGoogleDoc } from './google';
 
 /** Value of the section picker meaning "the whole document". */
 const WHOLE = '\u0000whole';
@@ -134,6 +134,66 @@ export function PullDialog({
           {doc && (
             <button className="primary" onClick={place}>
               Place on page
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type PushState = { step: 'confirm' } | { step: 'working' } | { step: 'done' } | { step: 'error'; message: string };
+
+/** Confirm, then write the layout's text back into the Google Doc it came from. */
+export function PushDialog({
+  story,
+  onClose,
+  onPushed,
+}: {
+  story: Story;
+  onClose: () => void;
+  /** Called with the section's text as the doc now has it. */
+  onPushed: (docText: string) => void;
+}) {
+  const source = story.source!;
+  const [state, setState] = useState<PushState>({ step: 'confirm' });
+  const where = source.section ? `the section "${source.section}"` : 'the whole document';
+
+  async function push() {
+    setState({ step: 'working' });
+    try {
+      onPushed(await pushToGoogleDoc(source.docId, source.section, source.pulledText, story.text));
+      setState({ step: 'done' });
+    } catch (err) {
+      setState({ step: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-label="Push to Google Doc">
+        <h2>Push to Google Doc</h2>
+        {state.step === 'confirm' && (
+          <>
+            <p>
+              This replaces {where} in <b>{source.docTitle}</b> with the text from this layout, including its headings,
+              bold and italic.
+            </p>
+            <p>
+              Google will ask for permission to edit your documents. If the document has changed since you pulled this
+              text, or that part contains lists, tables or images, nothing is changed and you are told why.
+            </p>
+            <p>Google Docs keeps a version history, so an unwanted change can be undone there.</p>
+          </>
+        )}
+        {state.step === 'working' && <p>Writing to the document…</p>}
+        {state.step === 'done' && <p>Done. The document now matches this layout's text.</p>}
+        {state.step === 'error' && <p className="error">{state.message}</p>}
+        <div className="modal-actions">
+          <button onClick={onClose}>{state.step === 'confirm' ? 'Cancel' : 'Close'}</button>
+          {state.step === 'confirm' && (
+            <button className="primary" onClick={() => void push()}>
+              Replace it in Google Docs
             </button>
           )}
         </div>

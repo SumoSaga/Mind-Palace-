@@ -61,7 +61,10 @@ Step 3 (linked text frames), first slice:
 
   Check the converter with `node scripts/test-gdocs.mjs`.
 
-Not built yet in step 3: pushing layout edits back to the doc, merging doc changes with layout edits (a refresh replaces the text), a live Google Doc embedded on the Desk, formatting buttons (markup is typed by hand), separate fonts or colours for headings, paragraph spacing and indents, control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
+- Push to doc: text pulled from a Google Doc can be written back. "Push to doc" replaces that section (or the whole doc) with the layout's text, restoring headings, bold and italic. It asks Google for edit access only at that point. It refuses, changing nothing, if the doc has changed since the text was pulled or if that part of the doc contains lists, tables or images. The planning logic is in `src/gdocs/push.ts`; check it with `node scripts/test-gdocs-push.mjs`.
+- Links on the Desk: "Add link" shows a Google Doc, Sheet or Slides file, or a YouTube or Vimeo video, live in a frame that moves and resizes like any item and can be sent to a Stage. Double-click to use the page inside; click away to move it again. See `src/embed.ts`.
+
+Not built yet in step 3: merging doc changes with layout edits (a refresh replaces the text), formatting buttons (markup is typed by hand), separate fonts or colours for headings, paragraph spacing and indents, control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
 
 Step 4 (layout suggestions and themes), first slice:
 

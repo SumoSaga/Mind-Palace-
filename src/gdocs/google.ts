@@ -1,5 +1,6 @@
 import { convertDoc, parseDocId } from './convert';
 import type { ConvertedDoc, GoogleDoc } from './convert';
+import { planPush } from './push';
 
 /**
  * Signing in to Google and reading a document. Everything happens in the
@@ -11,8 +12,10 @@ import type { ConvertedDoc, GoogleDoc } from './convert';
  */
 
 const CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() || '';
-/** Read-only access to the user's Google Docs. */
-const SCOPE = 'https://www.googleapis.com/auth/documents.readonly';
+/** Read-only access to the user's Google Docs: all that pulling and refreshing need. */
+const READ_SCOPE = 'https://www.googleapis.com/auth/documents.readonly';
+/** Read and write access, asked for only when the user pushes text back to a doc. */
+const WRITE_SCOPE = 'https://www.googleapis.com/auth/documents';
 
 export const isGoogleConfigured = () => CLIENT_ID !== '';
 
@@ -61,24 +64,31 @@ function loadGoogleScript(): Promise<void> {
   return scriptLoading;
 }
 
-let token: { value: string; expires: number } | null = null;
+const tokens = new Map<string, { value: string; expires: number }>();
 
-/** Returns an access token, opening Google's sign-in window if one is needed. */
-async function getToken(): Promise<string> {
-  if (token && token.expires > Date.now() + 60_000) return token.value;
+/** Returns an access token for a scope, opening Google's sign-in window if one is needed. */
+async function getToken(scope: string): Promise<string> {
+  // A write token also reads, so reuse it rather than asking twice.
+  for (const s of scope === READ_SCOPE ? [WRITE_SCOPE, READ_SCOPE] : [scope]) {
+    const cached = tokens.get(s);
+    if (cached && cached.expires > Date.now() + 60_000) return cached.value;
+  }
   if (!CLIENT_ID) throw new Error('Google is not set up for this app yet.');
   await loadGoogleScript();
   return new Promise<string>((resolve, reject) => {
     const client = window.google!.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
-      scope: SCOPE,
+      scope,
       callback: (response) => {
         if (response.error || !response.access_token) {
           reject(new Error(response.error_description || response.error || 'Google sign-in did not complete.'));
           return;
         }
-        token = { value: response.access_token, expires: Date.now() + (response.expires_in ?? 3600) * 1000 };
-        resolve(token.value);
+        tokens.set(scope, {
+          value: response.access_token,
+          expires: Date.now() + (response.expires_in ?? 3600) * 1000,
+        });
+        resolve(response.access_token);
       },
       error_callback: (error) =>
         reject(
@@ -95,29 +105,62 @@ async function getToken(): Promise<string> {
   });
 }
 
-/** Fetches a Google Doc by link or id and converts it to text-frame markup. */
-export async function loadGoogleDoc(linkOrId: string): Promise<ConvertedDoc & { docId: string }> {
-  const docId = parseDocId(linkOrId);
-  if (!docId) throw new Error('That does not look like a Google Docs link.');
-  const accessToken = await getToken();
+/** Turns a failed Google response into an error a person can act on. */
+async function googleError(response: Response): Promise<Error> {
+  if (response.status === 401) tokens.clear();
+  const detail = await response
+    .json()
+    .then((j: { error?: { message?: string } }) => j.error?.message)
+    .catch(() => undefined);
+  const reason =
+    response.status === 404
+      ? 'Google could not find that document.'
+      : response.status === 403
+        ? 'Google refused access. Check that the signed-in account can open (and, for pushing, edit) the document, and that the Google Docs API is enabled for your Google Cloud project.'
+        : `Google returned an error (${response.status}).`;
+  return new Error(detail ? `${reason} (${detail})` : reason);
+}
+
+async function fetchDoc(docId: string, accessToken: string): Promise<GoogleDoc> {
   const response = await fetch(
     `https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}?fields=title,body.content`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
-  if (!response.ok) {
-    if (response.status === 401) token = null;
-    const detail = await response
-      .json()
-      .then((j: { error?: { message?: string } }) => j.error?.message)
-      .catch(() => undefined);
-    const reason =
-      response.status === 404
-        ? 'Google could not find that document.'
-        : response.status === 403
-          ? 'Google refused access. Check that the signed-in account can open the document, and that the Google Docs API is enabled for your Google Cloud project.'
-          : `Google returned an error (${response.status}).`;
-    throw new Error(detail ? `${reason} (${detail})` : reason);
-  }
-  const doc = (await response.json()) as GoogleDoc;
+  if (!response.ok) throw await googleError(response);
+  return (await response.json()) as GoogleDoc;
+}
+
+/** Fetches a Google Doc by link or id and converts it to text-frame markup. */
+export async function loadGoogleDoc(linkOrId: string): Promise<ConvertedDoc & { docId: string }> {
+  const docId = parseDocId(linkOrId);
+  if (!docId) throw new Error('That does not look like a Google Docs link.');
+  const doc = await fetchDoc(docId, await getToken(READ_SCOPE));
   return { ...convertDoc(doc), docId };
+}
+
+/**
+ * Replaces a section of a Google Doc (or the whole doc) with the layout's
+ * text. Refuses if the doc has changed since `pulledText` was pulled, or holds
+ * things plain text cannot carry. Returns the section's text as the doc now has it.
+ */
+export async function pushToGoogleDoc(
+  docId: string,
+  section: string | null,
+  pulledText: string,
+  newText: string,
+): Promise<string> {
+  const accessToken = await getToken(WRITE_SCOPE);
+  const plan = planPush(await fetchDoc(docId, accessToken), section, pulledText, newText);
+  if (!plan.ok) throw new Error(plan.reason);
+  const response = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}:batchUpdate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests: plan.requests }),
+  });
+  if (!response.ok) throw await googleError(response);
+
+  // Read the doc back, so the layout remembers exactly what the doc now says.
+  const after = convertDoc(await fetchDoc(docId, accessToken));
+  const text = section === null ? after.text : after.sections.find((s) => s.title === section)?.text;
+  return text ?? newText;
 }

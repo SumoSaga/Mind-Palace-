@@ -8,6 +8,7 @@ const NARROW = '(max-width: 700px)';
 function label(item: Item): string {
   if (item.type === 'image') return 'Image';
   if (item.type === 'layout') return 'Layout';
+  if (item.type === 'embed') return item.label ?? 'Link';
   const text = (item.text ?? '').trim().replace(/\s+/g, ' ');
   return text ? (text.length > 28 ? `${text.slice(0, 28)}…` : text) : 'Text';
 }
@@ -86,6 +87,15 @@ export function Stage({
             </header>
             <div className="tile-body">
               {it.type === 'image' && <img src={it.src} alt="" draggable={false} />}
+              {it.type === 'embed' && (
+                <iframe
+                  className="tile-frame"
+                  src={it.url}
+                  title={it.label ?? 'Embedded page'}
+                  allow="autoplay; fullscreen; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                />
+              )}
               {it.type === 'layout' && (
                 <div className="tile-open">
                   <button onClick={() => it.layoutId && onOpenLayout(it.layoutId)}>Open layout</button>

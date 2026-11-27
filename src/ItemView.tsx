@@ -94,6 +94,8 @@ export function ItemView({
 }: Props) {
   const [editing, setEditing] = useState(false);
   const busy = useBgStatus(item.id);
+  /** An embedded page being used: the mouse goes to the page, not to moving the item. */
+  const using = item.type === 'embed' && editing;
   const ownText = item.type === 'text' && !flow ? (item.text ?? '') : null;
   const ownHtml = useMemo(() => (ownText === null ? '' : renderAll(ownText)), [ownText]);
   const html = flow ? flow.html : ownHtml;
@@ -196,7 +198,7 @@ export function ItemView({
   }
 
   function onDoubleClick() {
-    if (item.type === 'text') setEditing(true);
+    if (item.type === 'text' || item.type === 'embed') setEditing(true);
     else if (item.type === 'layout') onOpen?.(item);
   }
 
@@ -237,6 +239,22 @@ export function ItemView({
         >
           +
         </button>
+      )}
+      {item.type === 'embed' && (
+        <>
+          <div className="embed-bar">
+            <span>{item.label ?? 'Link'}</span>
+            <span className="hint">{using ? 'Click outside to move it' : 'Double-click to use'}</span>
+          </div>
+          <iframe
+            src={item.url}
+            title={item.label ?? 'Embedded page'}
+            allow="autoplay; fullscreen; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"
+            allowFullScreen
+          />
+          {/* A cover takes the mouse so the item can be dragged; it lifts while the page is in use. */}
+          {!using && <div className="embed-cover" />}
+        </>
       )}
       {item.type === 'layout' && (
         <div className="layout-card">

@@ -4,7 +4,7 @@ import { useRefineId } from './bg/RefineEditor';
 import { BackgroundButtons } from './bg/removeBackground';
 import { continueOnNextPage, flowToEnd, useFlow } from './flow';
 import { DEFAULT_FONT, FONT_GROUPS } from './fonts/fonts';
-import { PullDialog, RefreshDialog } from './gdocs/GoogleDocDialog';
+import { PullDialog, PushDialog, RefreshDialog } from './gdocs/GoogleDocDialog';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import { ItemView } from './ItemView';
 import { PAPERS, planPrint, PrintView } from './PrintView';
@@ -39,6 +39,7 @@ import {
   useLayouts,
   usePages,
   addStoryFrame,
+  markStoryPushed,
   refreshStory,
   useStories,
 } from './store';
@@ -90,7 +91,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   const refining = !!useRefineId();
   const flow = useFlow(items);
   const stories = useStories();
-  const [docDialog, setDocDialog] = useState<'pull' | 'refresh' | null>(null);
+  const [docDialog, setDocDialog] = useState<'pull' | 'refresh' | 'push' | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const theme = getTheme(layout?.theme);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
@@ -100,7 +101,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   const selStory = selItem?.storyId ? stories.find((s) => s.id === selItem.storyId) : undefined;
   const current = placed.find((p) => p.page.id === currentPageId) ?? placed[0];
   const sel = items.find((it) => it.id === selected);
-  const deskItems = items.filter((it) => it.location === 'desk' && it.type !== 'layout');
+  const deskItems = items.filter((it) => it.location === 'desk' && (it.type === 'text' || it.type === 'image'));
 
   // The layout was deleted (here or on another device): leave the editor.
   useEffect(() => {
@@ -536,6 +537,19 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
             Refresh from doc
           </button>
         )}
+        {selStory?.source && (
+          <button
+            disabled={selStory.text === selStory.source.pulledText}
+            onClick={() => setDocDialog('push')}
+            title={
+              selStory.text === selStory.source.pulledText
+                ? 'This text has not been edited since it was pulled, so there is nothing to push.'
+                : `Write this text back into the Google Doc "${selStory.source.docTitle}".`
+            }
+          >
+            Push to doc
+          </button>
+        )}
         <span className="spacer" />
         <button
           className="on"
@@ -643,6 +657,13 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
         />
       )}
       {docDialog === 'pull' && <PullDialog onClose={() => setDocDialog(null)} onPlace={placeFromDoc} />}
+      {docDialog === 'push' && selStory?.source && (
+        <PushDialog
+          story={selStory}
+          onClose={() => setDocDialog(null)}
+          onPushed={(docText) => markStoryPushed(selStory.id, docText)}
+        />
+      )}
       {docDialog === 'refresh' && selStory?.source && (
         <RefreshDialog
           story={selStory}

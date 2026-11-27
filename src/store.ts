@@ -9,7 +9,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
  * copy to the sync server so changes travel between devices.
  */
 
-export type ItemType = 'text' | 'image' | 'layout';
+export type ItemType = 'text' | 'image' | 'layout' | 'embed';
 
 export interface Item {
   id: string;
@@ -36,6 +36,9 @@ export interface Item {
    */
   storyId?: string;
   storyIndex?: number;
+  /** For type 'embed': the address shown live in a frame, and a label for its title bar. */
+  url?: string;
+  label?: string;
   /** For type 'layout': the layout document this Desk card opens. */
   layoutId?: string;
   // Text styling. Font size is in the surface's unit (px on the Desk, pt on a page).
@@ -268,6 +271,13 @@ export function refreshStory(storyId: string, text: string) {
   const story = stories.get().find((s) => s.id === storyId);
   if (!story?.source) return;
   stories.update(storyId, { text, source: { ...story.source, pulledAt: Date.now(), pulledText: text } });
+}
+
+/** Records that a story's text has been written to its source, which now reads `docText`. */
+export function markStoryPushed(storyId: string, docText: string) {
+  const story = stories.get().find((s) => s.id === storyId);
+  if (!story?.source) return;
+  stories.update(storyId, { source: { ...story.source, pulledAt: Date.now(), pulledText: docText } });
 }
 
 /** Replaces part of a story's text, as when one frame's portion is edited. */

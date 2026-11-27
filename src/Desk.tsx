@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
 import { BackgroundButtons } from './bg/removeBackground';
+import { toEmbed } from './embed';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import type { Point } from './hooks';
 import { ItemView } from './ItemView';
@@ -31,6 +32,9 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
   const layouts = useLayouts();
   const known = useKnownDevices();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [linking, setLinking] = useState(false);
+  const [link, setLink] = useState('');
+  const [linkError, setLinkError] = useState<string | null>(null);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
 
   // An item that has left the Desk is no longer selectable on it.
@@ -70,7 +74,7 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
   }
 
   useEditingKeys({
-    active,
+    active: active && !linking,
     onDelete: deleteSelected,
     onEscape: () => setSelected(null),
     onUndo: () => undoManager.undo(),
@@ -149,6 +153,12 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
         <button onClick={() => addText(viewCentre())}>Add text</button>
         <button onClick={() => fileRef.current?.click()}>Add image</button>
         <button
+          onClick={() => setLinking(true)}
+          title="Show a Google Doc, Sheet or Slides file, or a YouTube or Vimeo video, live on the Desk"
+        >
+          Add link
+        </button>
+        <button
           onClick={() => {
             const { itemId, layoutId } = addLayout(viewCentre());
             setSelected(itemId);
@@ -179,6 +189,58 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
           }}
         />
       </div>
+
+      {linking && (
+        <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && setLinking(false)}>
+          <form
+            className="modal"
+            role="dialog"
+            aria-label="Add a link"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const embed = toEmbed(link);
+              if (!embed) {
+                setLinkError('Enter a full link starting with https://');
+                return;
+              }
+              const at = viewCentre();
+              setSelected(
+                addItem({
+                  type: 'embed',
+                  url: embed.src,
+                  label: embed.label,
+                  x: at.x - embed.w / 2,
+                  y: at.y - embed.h / 2,
+                  w: embed.w,
+                  h: embed.h,
+                }),
+              );
+              setLink('');
+              setLinkError(null);
+              setLinking(false);
+            }}
+          >
+            <h2>Add a link</h2>
+            <p>
+              Paste a link to a Google Doc, Sheet or Slides file to work on it here, or a YouTube or Vimeo link to play
+              it here. Other pages appear only if their site allows it.
+            </p>
+            <label className="field">
+              Link
+              <input autoFocus value={link} placeholder="https://…" onChange={(e) => setLink(e.target.value)} />
+            </label>
+            {linkError && <p className="error">{linkError}</p>}
+            <div className="modal-actions">
+              <button type="button" onClick={() => setLinking(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary" disabled={!link.trim()}>
+                Add to Desk
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   );
 }
