@@ -111,6 +111,27 @@ body {
   outline: none;
 }
 
+/* Paragraph blocks produced by markup.ts. The flow engine measures these same
+   blocks, so any change to their size here changes where text breaks. */
+.tl.h1,
+.tl.h2,
+.tl.h3 {
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.tl.h1 {
+  font-size: 2em;
+}
+
+.tl.h2 {
+  font-size: 1.5em;
+}
+
+.tl.h3 {
+  font-size: 1.2em;
+}
+
 .item-text.editing {
   cursor: text;
 }

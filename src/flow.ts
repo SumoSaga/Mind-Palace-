@@ -11,6 +11,8 @@ import {
   useStories,
 } from './store';
 import type { Item } from './store';
+import { afterHeadingMarker, parseMarkup, renderHtml } from './markup';
+import type { Line } from './markup';
 
 /**
  * Text flow: divides a story's text among its chain of linked frames. Each
@@ -21,8 +23,10 @@ import type { Item } from './store';
 
 export interface FlowInfo {
   storyId: string;
-  /** The part of the story this frame shows, and where it sits in the story text. */
+  /** The part of the story this frame shows (source text, with markup), and where it sits in the story. */
   text: string;
+  /** That part rendered with its headings, bold and italic. */
+  html: string;
   start: number;
   end: number;
   /** The frame ends in the middle of a paragraph. */
@@ -66,7 +70,8 @@ const isSpace = (ch: string) => ch === ' ' || ch === '\n' || ch === '\t' || ch =
 function breakPositions(text: string): number[] {
   const out: number[] = [];
   for (let i = 1; i < text.length; i++) {
-    if (isSpace(text[i - 1]) && !isSpace(text[i])) out.push(i);
+    // Never cut between a heading marker and its heading.
+    if (isSpace(text[i - 1]) && !isSpace(text[i]) && !afterHeadingMarker(text, i)) out.push(i);
   }
   out.push(text.length);
   return out;
@@ -88,7 +93,7 @@ function firstAbove(list: number[], value: number): number {
  * Fits as much text as possible into one frame, starting at `pos`.
  * Returns the range shown (trailing spaces excluded) and where the next frame resumes.
  */
-function fitFrame(text: string, breaks: number[], pos: number, frame: Item, guess: number) {
+function fitFrame(text: string, lines: Line[], breaks: number[], pos: number, frame: Item, guess: number) {
   let start = pos;
   while (start < text.length && isSpace(text[start])) start++; // no blank space at the top of a frame
   if (start >= text.length) return { start: text.length, end: text.length, next: text.length, count: guess };
@@ -96,7 +101,7 @@ function fitFrame(text: string, breaks: number[], pos: number, frame: Item, gues
   const el = probeFor(frame);
   const maxHeight = (frame.h * 96) / 72 + 0.5;
   const fits = (cut: number) => {
-    el.textContent = text.slice(start, cut).trimEnd();
+    el.innerHTML = renderHtml(text, lines, start, start + text.slice(start, cut).trimEnd().length);
     return el.getBoundingClientRect().height <= maxHeight;
   };
 
@@ -130,12 +135,24 @@ function fitFrame(text: string, breaks: number[], pos: number, frame: Item, gues
   }
 
   if (lo === -1) return { start, end: start, next: start, count: guess }; // not even one word fits
-  const next = breaks[lo];
+  let next = breaks[lo];
+  // Keep a heading with what follows: if the frame would end on a heading while
+  // more text remains, move the heading to the next frame instead.
+  if (next < text.length) {
+    const lastChar = start + text.slice(start, next).trimEnd().length - 1;
+    const lineStart = text.lastIndexOf('\n', lastChar) + 1;
+    const lineEnd = text.indexOf('\n', lineStart);
+    const wholeLineHere = lineEnd === -1 ? false : lineEnd <= next;
+    if (lineStart > start && wholeLineHere && /^#{1,3} /.test(text.slice(lineStart, lineStart + 4))) {
+      next = lineStart;
+    }
+  }
   const end = start + text.slice(start, next).trimEnd().length;
   return { start, end, next, count: lo - first + 1 };
 }
 
 interface StoryLayout {
+  lines: Line[];
   ranges: Array<{ start: number; end: number }>;
   /** Where unplaced text begins; equals the text length when everything fits. */
   placedUpTo: number;
@@ -144,18 +161,19 @@ interface StoryLayout {
 
 function layoutStory(text: string, frames: Item[]): StoryLayout {
   const breaks = breakPositions(text);
+  const lines = parseMarkup(text);
   const ranges: StoryLayout['ranges'] = [];
   let pos = 0;
   let guess = 64;
   for (const frame of frames) {
-    const fit = fitFrame(text, breaks, pos, frame, guess);
+    const fit = fitFrame(text, lines, breaks, pos, frame, guess);
     ranges.push({ start: fit.start, end: fit.end });
     pos = fit.next;
     guess = fit.count;
   }
   let rest = pos;
   while (rest < text.length && isSpace(text[rest])) rest++;
-  return { ranges, placedUpTo: pos, overflow: rest < text.length };
+  return { lines, ranges, placedUpTo: pos, overflow: rest < text.length };
 }
 
 // --- cached results, recomputed when text, frame shape, font or loaded fonts change
@@ -174,7 +192,7 @@ if (typeof document !== 'undefined' && document.fonts) {
 
 function cachedLayout(storyId: string, text: string, frames: Item[]): StoryLayout {
   const shape = frames
-    .map((f) => [f.w, f.h, f.fontFamily, f.fontSize, f.bold, f.italic].join(','))
+    .map((f) => [f.w, f.h, f.fontFamily, f.fontSize, f.bold, f.italic, f.align].join(','))
     .join('|');
   const key = `${fontsVersion}\u0000${shape}\u0000${text}`;
   const hit = cache.get(storyId);
@@ -204,12 +222,14 @@ export function useFlow(items: Item[]): Map<string, FlowInfo> {
         const { start, end } = layout.ranges[i];
         let after = end;
         while (after < story.text.length && (story.text[after] === ' ' || story.text[after] === '\t')) after++;
+        const continues = after < story.text.length && story.text[after] !== '\n';
         out.set(frame.id, {
           storyId: story.id,
           text: story.text.slice(start, end),
+          html: renderHtml(story.text, layout.lines, start, end, continues && frame.align === 'justify'),
           start,
           end,
-          continues: after < story.text.length && story.text[after] !== '\n',
+          continues,
           overflow: layout.overflow && i === frames.length - 1,
         });
       });
@@ -271,14 +291,14 @@ export function flowToEnd(frame: Item): number {
   const text = getStories().find((s) => s.id === storyId)?.text ?? '';
   const breaks = breakPositions(text);
   let frames = storyFrames(storyId);
-  let { placedUpTo: pos, overflow } = layoutStory(text, frames);
+  let { placedUpTo: pos, overflow, lines } = layoutStory(text, frames);
   let added = 0;
   let guess = 64;
   while (overflow && added < MAX_NEW_FRAMES) {
     const newId = continueOnNextPage(frames[frames.length - 1]);
     if (!newId) break;
     frames = storyFrames(storyId);
-    const fit = fitFrame(text, breaks, pos, frames[frames.length - 1], guess);
+    const fit = fitFrame(text, lines, breaks, pos, frames[frames.length - 1], guess);
     added++;
     if (fit.next === pos && fit.end === fit.start) break; // the frame is too small to hold anything
     pos = fit.next;

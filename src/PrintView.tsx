@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { FlowInfo } from './flow';
-import { boxStyle, flowTextStyle } from './ItemView';
+import { boxStyle, itemHtml, textStyle } from './ItemView';
 import { pageLocation } from './store';
 import type { Item, Layout, Page } from './store';
 
@@ -199,9 +199,11 @@ export function PrintView({
                       <div key={it.id} className={`item item-${it.type} on-page`} style={boxStyle(it, 'pt')}>
                         {it.type === 'image' && <img src={it.src} alt="" />}
                         {it.type === 'text' && (
-                          <div className="text" style={flowTextStyle(it, 'pt', flow.get(it.id))}>
-                            {flow.get(it.id)?.text ?? it.text}
-                          </div>
+                          <div
+                            className="text"
+                            style={textStyle(it, 'pt')}
+                            dangerouslySetInnerHTML={{ __html: itemHtml(it, flow.get(it.id)) }}
+                          />
                         )}
                       </div>
                     ))}

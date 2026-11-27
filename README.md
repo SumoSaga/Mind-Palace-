@@ -53,7 +53,9 @@ Step 3 (linked text frames), first slice:
 - Pasting long text into the editor makes a frame that fills the margins.
 - The flow is worked out by measuring real text in the browser (`src/flow.ts`); it is not stored.
 
-Not built yet in step 3: mixed styles inside a story (headings, bold words), control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
+- Mixed styles inside text, written as light markup: start a line with `#`, `##` or `###` for headings, and wrap words in `**bold**` or `*italic*`. The markers are hidden except while editing. A heading is never left alone at the bottom of a frame. This applies to every text item, on the Desk as well. See `src/markup.ts`.
+
+Not built yet in step 3: formatting buttons (markup is typed by hand), separate fonts or colours for headings, paragraph spacing and indents, control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
 
 `npm run dev` starts two things: the app, and a development sync server (`server/sync-server.mjs`) that relays changes between devices. The sync server keeps spaces in memory only.
 

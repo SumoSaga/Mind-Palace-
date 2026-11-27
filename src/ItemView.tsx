@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { useBgStatus } from './bg/removeBackground';
 import { deviceAt, highlightDevice } from './Dock';
 import type { FlowInfo } from './flow';
+import { renderAll } from './markup';
 import type { Point } from './hooks';
 import { bringToFront, updateItem } from './store';
 import type { Item, Layout } from './store';
@@ -30,11 +31,9 @@ interface Props {
   onOverflowClick?: (item: Item) => void;
 }
 
-/** Styles for a frame's text, including full justification where a paragraph runs on. */
-export function flowTextStyle(item: Item, unit: Unit, flow: FlowInfo | undefined): CSSProperties {
-  const style = textStyle(item, unit);
-  if (flow?.continues && item.align === 'justify') style.textAlignLast = 'justify';
-  return style;
+/** A text item's content as HTML: its portion of a story if linked, else its own text. */
+export function itemHtml(item: Item, flow: FlowInfo | undefined): string {
+  return flow ? flow.html : renderAll(item.text ?? '');
 }
 
 const MIN_SIZE = 12;
@@ -91,6 +90,9 @@ export function ItemView({
 }: Props) {
   const [editing, setEditing] = useState(false);
   const busy = useBgStatus(item.id);
+  const ownText = item.type === 'text' && !flow ? (item.text ?? '') : null;
+  const ownHtml = useMemo(() => (ownText === null ? '' : renderAll(ownText)), [ownText]);
+  const html = flow ? flow.html : ownHtml;
   const textRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -202,21 +204,26 @@ export function ItemView({
       onDoubleClick={onDoubleClick}
     >
       {item.type === 'image' && <img src={item.src} alt="" draggable={false} />}
-      {item.type === 'text' && (
-        <div
-          ref={textRef}
-          className="text"
-          style={flowTextStyle(item, unit, flow)}
-          contentEditable={editing}
-          suppressContentEditableWarning
-          onBlur={finishEditing}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') (e.target as HTMLElement).blur();
-          }}
-        >
-          {flow ? flow.text : item.text}
-        </div>
-      )}
+      {item.type === 'text' &&
+        (editing ? (
+          // While editing, the source text is shown, markup and all.
+          <div
+            key="edit"
+            ref={textRef}
+            className="text"
+            style={textStyle(item, unit)}
+            contentEditable
+            suppressContentEditableWarning
+            onBlur={finishEditing}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') (e.target as HTMLElement).blur();
+            }}
+          >
+            {flow ? flow.text : item.text}
+          </div>
+        ) : (
+          <div key="view" className="text" style={textStyle(item, unit)} dangerouslySetInnerHTML={{ __html: html }} />
+        ))}
       {flow?.overflow && !editing && (
         <button
           className="overflow-mark"

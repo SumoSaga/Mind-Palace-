@@ -417,6 +417,12 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           <>
             {sel.type === 'text' && (
               <>
+                <span
+                  className="print-info"
+                  title="Double-click a frame to edit its text. Start a line with # for a heading, ## or ### for smaller ones. Wrap words in **two asterisks** for bold or *one* for italic."
+                >
+                  # Heading · **bold** · *italic*
+                </span>
                 <button
                   onClick={() => continueFrame(sel)}
                   title="Add a linked frame on the next page; text that does not fit here carries on there"
