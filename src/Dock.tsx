@@ -1,4 +1,5 @@
 import type { Mode } from './App';
+import { getSession, signOut } from './session';
 import { isPageLocation, updateItem, useItems } from './store';
 import { renameThisDevice, thisDevice, useConnected, useDevices, useKnownDevices } from './sync';
 
@@ -32,6 +33,7 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
   const online = useDevices();
   const known = useKnownDevices();
   const items = useItems();
+  const user = getSession().user;
 
   const counts = new Map<string, number>();
   for (const it of items) {
@@ -92,6 +94,12 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
           </button>
         );
       })}
+
+      {user && (
+        <button className="device" onClick={() => void signOut()} title={`Signed in as ${user.email}`}>
+          Sign out
+        </button>
+      )}
     </div>
   );
 }

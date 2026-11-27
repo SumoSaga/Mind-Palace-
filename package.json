@@ -4,8 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n sync,web \"node server/sync-server.mjs\" \"vite\"",
+    "dev": "concurrently -k -n sync,web \"node server/sync-server.mjs --dev\" \"vite\"",
     "build": "tsc && vite build",
+    "start": "node server/sync-server.mjs",
     "preview": "vite preview",
     "typecheck": "tsc"
   },

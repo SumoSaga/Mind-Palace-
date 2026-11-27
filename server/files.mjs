@@ -11,7 +11,12 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
-const DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'files');
+const DIR = path.join(
+  process.env.DATA_DIR
+    ? path.resolve(process.env.DATA_DIR)
+    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data'),
+  'files',
+);
 const MAX_BYTES = 4 * 1024 ** 3;
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 

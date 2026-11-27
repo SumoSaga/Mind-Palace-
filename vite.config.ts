@@ -12,6 +12,7 @@ export default defineConfig({
     proxy: {
       // Uploaded files (PDFs, videos) are kept and served by the same server.
       '/files': { target: 'http://localhost:1234' },
+      '/auth': { target: 'http://localhost:1234' },
       '/sync': {
         target: 'ws://localhost:1234',
         ws: true,

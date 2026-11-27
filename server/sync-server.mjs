@@ -1,123 +1,148 @@
-// Development sync server: relays workspace changes and device presence
-// between every browser connected to the same space. It keeps each space in
-// memory only; browsers hold their own saved copy and re-send it on connect.
-// This is replaced by the hosted backend later.
+// The Mind Palace server. One process does four jobs:
+//   - relays workspace changes between browsers and saves them (rooms.mjs)
+//   - stores and serves uploaded files such as PDFs and videos (files.mjs)
+//   - signs people in with Google and checks they are allowed in (auth.mjs)
+//   - serves the built app itself, when there is one (static.mjs)
+//
+// While developing, `npm run dev` runs this alongside Vite, which serves the
+// app and forwards /sync, /files and /auth here. In production, `npm start`
+// runs this alone.
 import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { configProblems, cookieHeader, makeSession, readConfig, readSession, verifyGoogleToken } from './auth.mjs';
 import { handleFiles } from './files.mjs';
-import * as Y from 'yjs';
-import * as syncProtocol from 'y-protocols/sync';
-import * as awarenessProtocol from 'y-protocols/awareness';
-import * as encoding from 'lib0/encoding';
-import * as decoding from 'lib0/decoding';
+import { createRooms, validRoomName } from './rooms.mjs';
+import { handleStatic } from './static.mjs';
 
-const PORT = Number(process.env.SYNC_PORT ?? 1234);
-const MESSAGE_SYNC = 0;
-const MESSAGE_AWARENESS = 1;
+// While developing (`--dev`), the port is fixed at 1234, where Vite forwards to;
+// PORT then belongs to Vite. In production the host chooses the port with PORT.
+const PORT = process.argv.includes('--dev') ? 1234 : Number(process.env.PORT ?? 1234);
+// Saved workspaces and uploaded files live here. DATA_DIR lets a host point it at a persistent disk.
+const DATA = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
-/** @type {Map<string, { doc: Y.Doc, awareness: awarenessProtocol.Awareness, conns: Map<import('ws').WebSocket, Set<number>> }>} */
-const rooms = new Map();
-
-function send(ws, encoder) {
-  if (ws.readyState === ws.OPEN) ws.send(encoding.toUint8Array(encoder));
+const auth = readConfig();
+const problems = configProblems(auth);
+if (problems.length) {
+  console.error('Sign-in is switched on but not fully set up:');
+  for (const p of problems) console.error(`  - ${p}`);
+  process.exit(1);
 }
 
-function getRoom(name) {
-  let room = rooms.get(name);
-  if (room) return room;
+const rooms = createRooms(path.join(DATA, 'spaces'));
 
-  const doc = new Y.Doc();
-  const awareness = new awarenessProtocol.Awareness(doc);
-  awareness.setLocalState(null);
-  const conns = new Map();
-  room = { doc, awareness, conns };
-  rooms.set(name, room);
+/** Who is making this request, or null. With sign-in off, everyone is a local user. */
+const userOf = (req) => (auth.required ? readSession(req.headers.cookie, auth) : { email: 'local', name: 'Local' });
 
-  doc.on('update', (update) => {
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, MESSAGE_SYNC);
-    syncProtocol.writeUpdate(encoder, update);
-    for (const ws of conns.keys()) send(ws, encoder);
-  });
+/** True unless the request comes from a page on some other site. */
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
 
-  awareness.on('update', ({ added, updated, removed }, origin) => {
-    // Remember which presence entries each connection owns, so they can be
-    // cleared when that connection drops.
-    const owned = conns.get(origin);
-    if (owned) {
-      for (const id of [...added, ...updated]) owned.add(id);
-      for (const id of removed) owned.delete(id);
+const isSecure = (req) => req.headers['x-forwarded-proto'] === 'https' || !!req.socket.encrypted;
+
+function json(res, status, body, headers = {}) {
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers });
+  res.end(JSON.stringify(body));
+}
+
+async function readJson(req, limit = 16 * 1024) {
+  let text = '';
+  for await (const chunk of req) {
+    text += chunk;
+    if (text.length > limit) throw new Error('Request too large');
+  }
+  return JSON.parse(text || '{}');
+}
+
+async function handleAuth(req, res, pathname) {
+  if (req.method === 'GET' && pathname === '/auth/me') {
+    return json(res, 200, { required: auth.required, clientId: auth.clientId, user: auth.required ? userOf(req) : null });
+  }
+  if (req.method === 'POST' && pathname === '/auth/google') {
+    if (!auth.required) return json(res, 400, { error: 'Sign-in is not switched on.' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Not allowed from another site.' });
+    let user;
+    try {
+      const { credential } = await readJson(req);
+      user = await verifyGoogleToken(credential, { clientId: auth.clientId });
+    } catch (err) {
+      console.error('[auth] sign-in rejected:', err.message);
+      return json(res, 401, { error: 'Google sign-in could not be verified. Try again.' });
     }
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
-    encoding.writeVarUint8Array(
-      encoder,
-      awarenessProtocol.encodeAwarenessUpdate(awareness, [...added, ...updated, ...removed]),
-    );
-    for (const ws of conns.keys()) send(ws, encoder);
-  });
-
-  return room;
+    if (!auth.allowed.includes(user.email)) {
+      return json(res, 403, { error: `${user.email} has not been given access to this Mind Palace.` });
+    }
+    return json(res, 200, { user }, { 'Set-Cookie': cookieHeader(makeSession(user, auth.secret), { secure: isSecure(req) }) });
+  }
+  if (req.method === 'POST' && pathname === '/auth/signout') {
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Not allowed from another site.' });
+    return json(res, 200, {}, { 'Set-Cookie': cookieHeader('', { secure: isSecure(req), clear: true }) });
+  }
+  return json(res, 404, { error: 'Not found' });
 }
 
-// The same port also serves the file store (see files.mjs): large files such
-// as PDFs and videos live on disk here, and items in the workspace point at them.
 const server = http.createServer((req, res) => {
-  handleFiles(req, res).catch((err) => {
-    console.error('[files] error', err);
+  const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+  let work;
+  if (pathname.startsWith('/auth/')) work = handleAuth(req, res, pathname);
+  else if (pathname === '/files' || pathname.startsWith('/files/')) {
+    if (!userOf(req)) work = Promise.resolve(json(res, 401, { error: 'Sign in first.' }));
+    else if (req.method === 'POST' && !sameOrigin(req)) work = Promise.resolve(json(res, 403, { error: 'Not allowed from another site.' }));
+    else work = handleFiles(req, res);
+  } else work = handleStatic(req, res);
+  work.catch((err) => {
+    console.error('[server] error', err);
     if (!res.headersSent) res.writeHead(500);
     res.end();
   });
 });
-const wss = new WebSocketServer({ server });
-server.listen(PORT, '0.0.0.0');
 
-wss.on('connection', (ws, req) => {
-  const name = decodeURIComponent((req.url ?? '/').slice(1).split('?')[0]) || 'default';
-  const room = getRoom(name);
-  room.conns.set(ws, new Set());
-
-  ws.on('message', (data) => {
+// Workspace connections. They are accepted only from this app's own pages and,
+// when sign-in is on, only with a valid session.
+const wss = new WebSocketServer({ noServer: true });
+server.on('upgrade', (req, socket, head) => {
+  const refuse = (status) => {
+    socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+    socket.destroy();
+  };
+  // Reached as /sync/<space> directly, or as /<space> through the development proxy.
+  let name = 'default';
+  try {
+    const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+    name = pathname.replace(/^\/sync(?=\/|$)/, '').replace(/^\//, '') || 'default';
+  } catch {
+    return refuse('400 Bad Request');
+  }
+  if (!validRoomName(name)) return refuse('400 Bad Request');
+  if (auth.required && !sameOrigin(req)) return refuse('403 Forbidden');
+  if (!userOf(req)) return refuse('401 Unauthorized');
+  wss.handleUpgrade(req, socket, head, (ws) => {
     try {
-      const decoder = decoding.createDecoder(new Uint8Array(data));
-      const type = decoding.readVarUint(decoder);
-      if (type === MESSAGE_SYNC) {
-        const encoder = encoding.createEncoder();
-        encoding.writeVarUint(encoder, MESSAGE_SYNC);
-        syncProtocol.readSyncMessage(decoder, encoder, room.doc, ws);
-        if (encoding.length(encoder) > 1) send(ws, encoder);
-      } else if (type === MESSAGE_AWARENESS) {
-        awarenessProtocol.applyAwarenessUpdate(room.awareness, decoding.readVarUint8Array(decoder), ws);
-      }
+      rooms.connect(ws, name);
     } catch (err) {
-      console.error('[sync] bad message', err);
+      console.error('[sync] could not open space', err);
+      ws.close(1011, 'Could not open this space');
     }
   });
-
-  ws.on('close', () => {
-    const owned = room.conns.get(ws) ?? new Set();
-    room.conns.delete(ws);
-    awarenessProtocol.removeAwarenessStates(room.awareness, [...owned], null);
-  });
-
-  ws.on('error', (err) => console.error('[sync] socket error', err.message));
-
-  // Open the exchange: ask the browser for what we are missing, and tell it who is here.
-  const hello = encoding.createEncoder();
-  encoding.writeVarUint(hello, MESSAGE_SYNC);
-  syncProtocol.writeSyncStep1(hello, room.doc);
-  send(ws, hello);
-
-  const states = room.awareness.getStates();
-  if (states.size > 0) {
-    const presence = encoding.createEncoder();
-    encoding.writeVarUint(presence, MESSAGE_AWARENESS);
-    encoding.writeVarUint8Array(
-      presence,
-      awarenessProtocol.encodeAwarenessUpdate(room.awareness, [...states.keys()]),
-    );
-    send(ws, presence);
-  }
 });
 
-console.log(`[sync] listening on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[server] listening on port ${PORT}; sign-in ${auth.required ? `on for ${auth.allowed.length} account(s)` : 'off'}`);
+});
+
+// Save everything before stopping, so a restart or redeploy loses nothing.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    void rooms.saveAll().finally(() => process.exit(0));
+  });
+}

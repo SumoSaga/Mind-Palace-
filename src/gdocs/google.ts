@@ -1,6 +1,7 @@
 import { convertDoc, parseDocId } from './convert';
 import type { ConvertedDoc, GoogleDoc } from './convert';
 import { planPush } from './push';
+import { getSession } from '../session';
 
 /**
  * Signing in to Google and reading a document. Everything happens in the
@@ -11,13 +12,15 @@ import { planPush } from './push';
  * app, set as VITE_GOOGLE_CLIENT_ID in a file named .env.local.
  */
 
-const CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() || '';
+/** From .env.local while developing; from the server's settings once hosted. */
+const clientId = () =>
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() || getSession().clientId || '';
 /** Read-only access to the user's Google Docs: all that pulling and refreshing need. */
 const READ_SCOPE = 'https://www.googleapis.com/auth/documents.readonly';
 /** Read and write access, asked for only when the user pushes text back to a doc. */
 const WRITE_SCOPE = 'https://www.googleapis.com/auth/documents';
 
-export const isGoogleConfigured = () => CLIENT_ID !== '';
+export const isGoogleConfigured = () => clientId() !== '';
 
 // The small part of Google's sign-in library that is used.
 interface TokenResponse {
@@ -33,6 +36,11 @@ declare global {
   interface Window {
     google?: {
       accounts: {
+        /** Sign in with Google: identifies the person (used by the sign-in screen). */
+        id: {
+          initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+          renderButton: (parent: HTMLElement, options: Record<string, string>) => void;
+        };
         oauth2: {
           initTokenClient: (config: {
             client_id: string;
@@ -48,7 +56,7 @@ declare global {
 
 let scriptLoading: Promise<void> | null = null;
 
-function loadGoogleScript(): Promise<void> {
+export function loadGoogleScript(): Promise<void> {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
   scriptLoading ??= new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
@@ -73,11 +81,11 @@ async function getToken(scope: string): Promise<string> {
     const cached = tokens.get(s);
     if (cached && cached.expires > Date.now() + 60_000) return cached.value;
   }
-  if (!CLIENT_ID) throw new Error('Google is not set up for this app yet.');
+  if (!clientId()) throw new Error('Google is not set up for this app yet.');
   await loadGoogleScript();
   return new Promise<string>((resolve, reject) => {
     const client = window.google!.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID,
+      client_id: clientId(),
       scope,
       callback: (response) => {
         if (response.error || !response.access_token) {

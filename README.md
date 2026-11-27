@@ -85,7 +85,36 @@ Files on the Desk:
 - Like links, PDFs and videos move, resize and go to Stages; double-click to use them, click away to move them.
 - PDFs and videos are not stored inside the synced workspace. They are uploaded to a file store on the sync server (`server/files.mjs`, kept in `data/files/`, which Git ignores), and items point at them. Only PDF, MP4, WebM and common image types are accepted. Deleting an item does not yet delete its file.
 
-`npm run dev` starts two things: the app, and a development server (`server/sync-server.mjs`) that relays changes between devices and holds the file store. It keeps spaces in memory only; each browser re-sends its saved copy on connecting.
+`npm run dev` starts two things: Vite, which serves the app, and the Mind Palace server (`server/sync-server.mjs`), which relays changes between devices, saves workspaces, holds the file store and handles sign-in. Workspaces are saved to `data/spaces/` and uploaded files to `data/files/`; back up the `data` folder to back up everything.
+
+## Hosting it
+
+The server can run as the whole app, so hosting it means running one process with one persistent folder.
+
+```powershell
+npm run build
+npm start
+```
+
+`npm start` serves the built app, the workspace connection, files and sign-in on one port (`PORT`, default 1234).
+
+Settings, as environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `ALLOWED_EMAILS` | Comma-separated Google addresses allowed in. Setting this switches sign-in on. |
+| `GOOGLE_CLIENT_ID` | The Google OAuth client ID. The hosted address must be added to its authorised JavaScript origins. |
+| `SESSION_SECRET` | A random string of at least 32 characters, used to sign session cookies. Keep it secret. |
+| `PORT` | The port to listen on. Most hosts set this for you. |
+| `DATA_DIR` | Where to keep workspaces and files. Point it at the host's persistent disk. |
+
+With sign-in on, the workspace connection and every file require a signed-in, allowed account, and requests from other sites are refused. Without `ALLOWED_EMAILS`, sign-in is off, which is only suitable on a home network.
+
+The `Dockerfile` builds an image that runs this (port 8080, data in `/app/data`). It has not been built or run yet.
+
+Check the server with `node scripts/test-server.mjs` and, after a build, `node scripts/test-server-e2e.mjs`.
+
+Not built yet: Viewer and Editor roles (everyone allowed in can edit), more than one space, inviting people from inside the app, and moving images out of the workspace into the file store.
 
 Not built yet: sign-in, cloud storage, hosting outside the local network.
 
