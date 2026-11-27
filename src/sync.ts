@@ -8,12 +8,28 @@ import { doc, persistence, SPACE_ID } from './store';
  * currently connected to this space.
  */
 
-export type DeviceKind = 'phone' | 'tablet' | 'computer' | 'tv';
+export type DeviceKind = 'phone' | 'tablet' | 'laptop' | 'desktop' | 'computer' | 'tv';
 
 export interface Device {
   id: string;
   name: string;
   kind: DeviceKind;
+  /** True once the person using it has confirmed its name and type. */
+  named?: boolean;
+}
+
+/** The types a person can choose from, with the words shown for each. */
+export const DEVICE_KINDS: Array<{ kind: DeviceKind; label: string }> = [
+  { kind: 'phone', label: 'Phone' },
+  { kind: 'tablet', label: 'Tablet' },
+  { kind: 'laptop', label: 'Laptop' },
+  { kind: 'desktop', label: 'Desktop PC' },
+  { kind: 'tv', label: 'TV' },
+];
+
+/** The word shown for a device's type. */
+export function kindLabel(kind: DeviceKind): string {
+  return DEVICE_KINDS.find((k) => k.kind === kind)?.label ?? 'Computer';
 }
 
 function guessKind(): DeviceKind {
@@ -25,7 +41,6 @@ function guessKind(): DeviceKind {
   return 'computer';
 }
 
-const KIND_LABEL: Record<DeviceKind, string> = { phone: 'Phone', tablet: 'Tablet', computer: 'Computer', tv: 'TV' };
 const STORAGE_KEY = 'mind-palace-device';
 
 function loadDevice(): Device {
@@ -36,7 +51,7 @@ function loadDevice(): Device {
     /* storage unavailable: fall through to a temporary identity */
   }
   const kind = guessKind();
-  const device: Device = { id: newId(), name: KIND_LABEL[kind], kind };
+  const device: Device = { id: newId(), name: kindLabel(kind), kind };
   saveDevice(device);
   return device;
 }
@@ -89,10 +104,10 @@ export function useKnownDevices(): Map<string, Device> {
   );
 }
 
-export function renameThisDevice(name: string) {
-  const trimmed = name.trim();
-  if (!trimmed) return;
-  thisDevice = { ...thisDevice, name: trimmed };
+/** Sets this device's name and type, as chosen by the person using it. */
+export function describeThisDevice(name: string, kind: DeviceKind) {
+  const trimmed = name.trim() || kindLabel(kind);
+  thisDevice = { ...thisDevice, name: trimmed, kind, named: true };
   saveDevice(thisDevice);
   awareness.setLocalStateField('device', thisDevice);
   register();

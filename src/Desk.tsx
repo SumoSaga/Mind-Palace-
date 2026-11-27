@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
 import { BackgroundButtons } from './bg/removeBackground';
-import { toEmbed } from './embed';
+import { resolveLink } from './embed';
 import { fileKind, uploadFile } from './files';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import type { Point } from './hooks';
@@ -11,12 +11,13 @@ import {
   addLayout,
   isPageLocation,
   removeItem,
+  sendItem,
   undoManager,
-  updateItem,
   useItems,
   useLayouts,
 } from './store';
-import { useKnownDevices } from './sync';
+import { ItemMenu } from './ItemMenu';
+import { thisDevice, useDevices, useKnownDevices } from './sync';
 
 interface Props {
   /** False while something is showing on top; keyboard and paste are ignored. */
@@ -32,10 +33,13 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
   const items = useItems();
   const layouts = useLayouts();
   const known = useKnownDevices();
+  const devices = useDevices();
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [linking, setLinking] = useState(false);
   const [link, setLink] = useState('');
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
@@ -143,6 +147,7 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
                   toWorld={toWorld}
                   layout={it.layoutId ? layouts.find((l) => l.id === it.layoutId) : undefined}
                   onOpen={(item) => item.layoutId && onOpenLayout(item.layoutId)}
+                  onMenu={(item, x, y) => setMenu({ id: item.id, x, y })}
                 />
               );
             }
@@ -161,7 +166,7 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
                 }}
                 title="Click to bring this back to the Desk"
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => updateItem(it.id, { location: 'desk' })}
+                onClick={() => sendItem(it.id, 'desk')}
               >
                 <span>on {known.get(it.location)?.name ?? 'another device'}</span>
               </button>
@@ -214,6 +219,29 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
         />
       </div>
 
+      {menu && items.some((it) => it.id === menu.id) && (
+        <ItemMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          options={[
+            ...devices.map((d) => ({
+              label: d.id === thisDevice.id ? 'Send to my Stage' : `Send to ${d.name}`,
+              onSelect: () => sendItem(menu.id, d.id),
+            })),
+            {
+              label: 'Delete',
+              divider: true,
+              danger: true,
+              onSelect: () => {
+                removeItem(menu.id);
+                setSelected(null);
+              },
+            },
+          ]}
+        />
+      )}
+
       {uploadError && (
         <div className="notice" role="alert">
           Could not add {uploadError}
@@ -227,34 +255,62 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
             className="modal"
             role="dialog"
             aria-label="Add a link"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              const embed = toEmbed(link);
-              if (!embed) {
-                setLinkError('Enter a full link starting with https://');
-                return;
-              }
-              const at = viewCentre();
-              setSelected(
-                addItem({
-                  type: 'embed',
-                  url: embed.src,
-                  label: embed.label,
-                  x: at.x - embed.w / 2,
-                  y: at.y - embed.h / 2,
-                  w: embed.w,
-                  h: embed.h,
-                }),
-              );
-              setLink('');
+              if (linkBusy) return;
+              setLinkBusy(true);
               setLinkError(null);
-              setLinking(false);
+              try {
+                const result = await resolveLink(link);
+                const at = viewCentre();
+                if (result.kind === 'embed') {
+                  const { embed } = result;
+                  setSelected(
+                    addItem({
+                      type: 'embed',
+                      url: embed.src,
+                      label: embed.label,
+                      x: at.x - embed.w / 2,
+                      y: at.y - embed.h / 2,
+                      w: embed.w,
+                      h: embed.h,
+                    }),
+                  );
+                } else {
+                  // The site cannot be shown inside another page: a card that opens it instead.
+                  const w = 320;
+                  const h = result.image ? 300 : 150;
+                  setSelected(
+                    addItem({
+                      type: 'link',
+                      url: result.url,
+                      label: result.label,
+                      text: result.title ?? result.label,
+                      src: result.image,
+                      x: at.x - w / 2,
+                      y: at.y - h / 2,
+                      w,
+                      h,
+                    }),
+                  );
+                }
+                setLink('');
+                setLinking(false);
+              } catch (err) {
+                setLinkError(err instanceof Error ? err.message : String(err));
+              } finally {
+                setLinkBusy(false);
+              }
             }}
           >
             <h2>Add a link</h2>
             <p>
-              Paste a link to a Google Doc, Sheet or Slides file to work on it here, or a YouTube or Vimeo link to play
-              it here. Other pages appear only if their site allows it.
+              A link to a Google Doc, Sheet or Slides file, or to a YouTube or Vimeo video, appears live so you can use
+              it here. Most other websites do not allow themselves to be shown inside another page; those become a card
+              that opens the site in a new tab.
+            </p>
+            <p className="connect-note">
+              For YouTube, use the link to a video or playlist, not the YouTube home page.
             </p>
             <label className="field">
               Link
@@ -265,8 +321,8 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
               <button type="button" onClick={() => setLinking(false)}>
                 Cancel
               </button>
-              <button type="submit" className="primary" disabled={!link.trim()}>
-                Add to Desk
+              <button type="submit" className="primary" disabled={!link.trim() || linkBusy}>
+                {linkBusy ? 'Checking the link…' : 'Add to Desk'}
               </button>
             </div>
           </form>

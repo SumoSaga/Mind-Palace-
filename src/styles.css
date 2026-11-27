@@ -210,6 +210,73 @@ body {
   cursor: pointer;
 }
 
+.item-link {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.12);
+}
+
+.link-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.link-card img {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.link-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 6px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.link-site {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.link-card strong {
+  font-size: 15px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.link-card button {
+  flex: none;
+  margin: 6px 12px 12px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--surface);
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.embed-open {
+  flex: none;
+  padding: 0 6px;
+  font: inherit;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 .item-framed video {
   flex: 1;
   min-height: 0;
@@ -1089,25 +1156,58 @@ body {
   border-color: var(--accent);
 }
 
+/* --- a device's Stage: a surface like the Desk, for what was sent here --- */
+
 .stage {
   position: absolute;
   inset: 0;
   z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 12px 76px;
   background: var(--bg);
 }
 
-.stage.empty {
+.stage-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
   color: var(--muted);
+  pointer-events: none;
 }
 
-.stage button,
-.stage select {
+.stage-empty p {
+  margin: 0;
+  max-width: 420px;
+}
+
+/* One item filling the screen. */
+.stage-full {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 68px; /* clear of the dock */
+  background: var(--bg);
+}
+
+.stage-full header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.stage-full header button,
+.stage-full header select,
+.tile-open button {
   padding: 8px 12px;
   font: inherit;
   color: var(--ink);
@@ -1117,48 +1217,89 @@ body {
   cursor: pointer;
 }
 
-.stage-tabs {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  flex: none;
-}
-
-.stage-tabs button {
-  white-space: nowrap;
-}
-
-.stage-tabs button.active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.stage-grid {
+.stage-full-body {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
-  grid-auto-rows: minmax(0, 1fr);
-  gap: 12px;
+  overflow: auto;
 }
 
-.tile {
+.full-fit {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/* The "more options" button on a selected item: the right-click menu, for touch. */
+.item-more {
+  position: absolute;
+  right: 0;
+  top: calc(-34px * var(--inv, 1));
+  width: calc(30px * var(--inv, 1));
+  height: calc(26px * var(--inv, 1));
+  padding: 0;
+  font: 700 calc(16px * var(--inv, 1)) / 1 system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--surface);
+  border: calc(1px * var(--inv, 1)) solid var(--accent);
+  border-radius: calc(6px * var(--inv, 1));
+  cursor: pointer;
+}
+
+.item-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 190px;
+  max-width: min(300px, calc(100vw - 16px));
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  min-height: 0;
+  padding: 6px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
 }
 
-.tile header {
+.item-menu button {
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.item-menu button:hover {
+  background: var(--line);
+}
+
+.item-menu button.divider {
+  margin-top: 5px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 6px 6px;
+  padding-top: 12px;
+}
+
+.item-menu button.danger {
+  color: #e5484d;
+}
+
+/* Choosing what kind of device this is. */
+.kind-choices {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.modal .kind-choices button.chosen {
+  color: var(--surface);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .tile-title {

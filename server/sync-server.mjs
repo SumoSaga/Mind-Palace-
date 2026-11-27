@@ -14,6 +14,7 @@ import { WebSocketServer } from 'ws';
 import { configProblems, cookieHeader, makeSession, readConfig, readSession, verifyGoogleToken } from './auth.mjs';
 import { AiError, aiAvailable, rankLayouts } from './ai.mjs';
 import { handleFiles } from './files.mjs';
+import { checkLink, LinkError } from './link.mjs';
 import { createPairing, isLocalRequest, lanAddresses, remoteAddressOf } from './pairing.mjs';
 import { createRooms, validRoomName } from './rooms.mjs';
 import { handleStatic } from './static.mjs';
@@ -136,6 +137,20 @@ async function handlePair(req, res, pathname) {
   return json(res, 404, { error: 'Not found' });
 }
 
+/** Inspecting a web address before it is added to the Desk; see link.mjs. */
+async function handleLink(req, res) {
+  if (req.method !== 'POST') return json(res, 404, { error: 'Not found' });
+  if (!userOf(req)) return json(res, 401, { error: 'Connect this device first.' });
+  if (!sameOrigin(req)) return json(res, 403, { error: 'Not allowed from another site.' });
+  try {
+    const { url } = await readJson(req, 8 * 1024);
+    return json(res, 200, await checkLink(url));
+  } catch (err) {
+    if (err instanceof LinkError) return json(res, 422, { error: err.message });
+    return json(res, 400, { error: 'That did not look like a web address.' });
+  }
+}
+
 /** Optional Claude features; see ai.mjs. */
 async function handleAi(req, res, pathname) {
   if (req.method === 'GET' && pathname === '/ai/status') return json(res, 200, { available: aiAvailable() });
@@ -158,6 +173,7 @@ const server = http.createServer((req, res) => {
   let work;
   if (pathname.startsWith('/auth/')) work = handleAuth(req, res, pathname);
   else if (pathname === '/pair' || pathname.startsWith('/pair/')) work = handlePair(req, res, pathname);
+  else if (pathname === '/link/check') work = handleLink(req, res);
   else if (pathname.startsWith('/ai/')) work = handleAi(req, res, pathname);
   else if (pathname === '/files' || pathname.startsWith('/files/')) {
     if (!userOf(req)) work = Promise.resolve(json(res, 401, { error: 'Sign in first.' }));

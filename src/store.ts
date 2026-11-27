@@ -10,7 +10,7 @@ import { newId } from './id';
  * copy to the sync server so changes travel between devices.
  */
 
-export type ItemType = 'text' | 'image' | 'layout' | 'embed' | 'pdf' | 'video';
+export type ItemType = 'text' | 'image' | 'layout' | 'embed' | 'pdf' | 'video' | 'link';
 
 export interface Item {
   id: string;
@@ -26,6 +26,15 @@ export interface Item {
   z: number;
   /** 'desk', a device id (the item is on that device's Stage), or 'page:<pageId>'. */
   location: string;
+  /**
+   * Where the item sits on the Stage it has been sent to, in pixels. Kept apart
+   * from x/y/w/h so its place on the Desk is still there when it comes back.
+   * Unset until the receiving device has placed it.
+   */
+  sx?: number;
+  sy?: number;
+  sw?: number;
+  sh?: number;
   text?: string;
   /** Image source. A data URL for now; becomes a cloud file reference later. */
   src?: string;
@@ -41,7 +50,9 @@ export interface Item {
   storyIndex?: number;
   /**
    * For type 'embed': the address shown live in a frame. For 'pdf' and 'video':
-   * the file's address in the file store. `label` is shown in the item's title bar.
+   * the file's address in the file store. For 'link': the page a card opens in a
+   * new tab, for sites that cannot be shown inside another page; `src` is then
+   * its preview picture and `text` its title. `label` is shown in the title bar.
    */
   url?: string;
   label?: string;
@@ -199,6 +210,14 @@ export function removeItem(id: string) {
     items.remove(id);
   });
   pruneStories();
+}
+
+/**
+ * Moves an item to the Desk or to a device's Stage. Its place on the previous
+ * Stage is forgotten, so the receiving Stage puts it somewhere sensible.
+ */
+export function sendItem(id: string, location: string, also: Partial<Omit<Item, 'id'>> = {}) {
+  items.update(id, { ...also, location, sx: undefined, sy: undefined, sw: undefined, sh: undefined });
 }
 
 export function bringToFront(id: string) {

@@ -39,6 +39,7 @@ export default defineConfig({
       '/auth': toServer(), // who is signed in or paired
       '/pair': toServer(), // connecting a new device
       '/ai': toServer(), // optional Claude features
+      '/link': toServer(), // checking a web address before adding it
       '/sync': toServer({
         target: 'ws://localhost:1234',
         ws: true,

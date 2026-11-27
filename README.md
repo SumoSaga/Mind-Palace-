@@ -88,6 +88,19 @@ Files on the Desk:
 - Like links, PDFs and videos move, resize and go to Stages; double-click to use them, click away to move them.
 - PDFs and videos are not stored inside the synced workspace. They are uploaded to a file store on the sync server (`server/files.mjs`, kept in `data/files/`, which Git ignores), and items point at them. Only PDF, MP4, WebM and common image types are accepted. Deleting an item does not yet delete its file.
 
+Devices and Stages:
+
+- The first time a device opens Mind Palace it is asked for a name and a type (phone, tablet, laptop, desktop PC or TV). Click the device's own entry in the dock to change them.
+- A Stage is a surface like the Desk. Things sent to a device can be moved and resized there without disturbing the place they return to on the Desk; "Fit all" shows everything.
+- Right-click an item (or press the ⋯ button on a selected item, for touch screens) for its menu. On a Stage: full screen, send to another device, send back to the Desk. On the Desk: send to a device, delete.
+- Full screen shows one item filling the device; Esc or "Exit full screen" leaves it.
+
+Links:
+
+- A specific YouTube video or playlist, a Vimeo video, or a Google Doc, Sheet or Slides file is shown live.
+- Most other websites forbid being shown inside another page, and a web app cannot override that. "Add link" asks the server whether the page allows it (`server/link.mjs`); if not, the link becomes a card with the page's title and picture and a button that opens it in a new tab. The server only contacts public addresses when checking.
+- Check the link rules with `node scripts/test-link.mjs`.
+
 Connecting devices (the home setup, without Google sign-in):
 
 - The computer running Mind Palace is always let in. Every other device must be connected once.

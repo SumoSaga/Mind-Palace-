@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { RefineEditor, useRefineId } from './bg/RefineEditor';
 import { Desk } from './Desk';
+import { DeviceDialog } from './DeviceDialog';
 import { Dock } from './Dock';
 import { LayoutEditor } from './LayoutEditor';
 import { Stage } from './Stage';
@@ -17,6 +18,7 @@ export function App() {
   const [openLayout, setOpenLayout] = useState<string | null>(null);
   const closeLayout = useCallback(() => setOpenLayout(null), []);
   const refineId = useRefineId();
+  const [naming, setNaming] = useState(!thisDevice.named);
 
   function changeMode(next: Mode) {
     setSelected(null);
@@ -26,7 +28,7 @@ export function App() {
   return (
     <div className="app">
       <Desk
-        active={mode === 'desk' && !openLayout && !refineId}
+        active={mode === 'desk' && !openLayout && !refineId && !naming}
         selected={selected}
         setSelected={setSelected}
         onOpenLayout={setOpenLayout}
@@ -35,6 +37,8 @@ export function App() {
       <Dock mode={mode} setMode={changeMode} selected={selected} onSent={() => setSelected(null)} />
       {openLayout && <LayoutEditor key={openLayout} layoutId={openLayout} onClose={closeLayout} />}
       {refineId && <RefineEditor key={refineId} itemId={refineId} />}
+      {/* The first time a device opens Mind Palace, it is asked for a name and type. */}
+      {naming && <DeviceDialog firstTime onClose={() => setNaming(false)} />}
     </div>
   );
 }

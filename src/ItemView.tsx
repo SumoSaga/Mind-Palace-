@@ -7,7 +7,7 @@ import type { FlowInfo } from './flow';
 import { renderAll } from './markup';
 import { PdfView } from './PdfView';
 import type { Point } from './hooks';
-import { bringToFront, updateItem } from './store';
+import { bringToFront, sendItem, updateItem } from './store';
 import type { Item, Layout } from './store';
 
 /** 'px' on the Desk; 'pt' on a layout page, so screen and print share one size. */
@@ -33,6 +33,15 @@ interface Props {
   onOverflowClick?: (item: Item) => void;
   /** In a card template: the data row being previewed, used to fill placeholders. */
   record?: Record<string, string>;
+  /**
+   * Where moves, resizes and sends are written. By default they go to the
+   * item's own position; a Stage redirects them to the item's place on that Stage.
+   */
+  onChange?: (patch: Partial<Item>) => void;
+  /** Hides the rotate handle, where rotation does not apply. */
+  noRotate?: boolean;
+  /** Opens the item's menu (right-click, or its "more" button), at a screen position. */
+  onMenu?: (item: Item, clientX: number, clientY: number) => void;
 }
 
 /** The image an item shows: the row's value for its bound column if it has one, else its own. */
@@ -103,7 +112,16 @@ export function ItemView({
   onCommitFlowText,
   onOverflowClick,
   record,
+  onChange,
+  noRotate,
+  onMenu,
 }: Props) {
+  /** Writes a move, resize, rotation or send. */
+  const change = (patch: Partial<Item>) => {
+    if (onChange) onChange(patch);
+    else if ('location' in patch && patch.location) sendItem(item.id, patch.location, patch);
+    else updateItem(item.id, patch);
+  };
   const [editing, setEditing] = useState(false);
   const busy = useBgStatus(item.id);
   /** An embedded page being used: the mouse goes to the page, not to moving the item. */
@@ -164,7 +182,7 @@ export function ItemView({
     startDrag(
       e,
       (p, ev) => {
-        updateItem(item.id, { x: x + p.x - start.x, y: y + p.y - start.y });
+        change({ x: x + p.x - start.x, y: y + p.y - start.y });
         highlightDevice(deviceAt(ev.clientX, ev.clientY));
       },
       (ev) => {
@@ -172,7 +190,7 @@ export function ItemView({
         // marker back where the item sat before the drag.
         const target = ev.type === 'pointerup' ? deviceAt(ev.clientX, ev.clientY) : null;
         highlightDevice(null);
-        if (target) updateItem(item.id, { x, y, location: target });
+        if (target) change({ x, y, location: target });
         else onDragEnd?.(item.id);
       },
     );
@@ -192,7 +210,7 @@ export function ItemView({
       if (type === 'image') nh = nw / aspect; // images keep their proportions
       const half = rotate({ x: (sx * nw) / 2, y: (sy * nh) / 2 }, rot);
       const nc = { x: anchor.x + half.x, y: anchor.y + half.y };
-      updateItem(item.id, { x: nc.x - nw / 2, y: nc.y - nh / 2, w: nw, h: nh });
+      change({ x: nc.x - nw / 2, y: nc.y - nh / 2, w: nw, h: nh });
     });
   }
 
@@ -201,7 +219,7 @@ export function ItemView({
     startDrag(e, (p, ev) => {
       let deg = (Math.atan2(p.y - centre.y, p.x - centre.x) * 180) / Math.PI + 90;
       if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
-      updateItem(item.id, { rot: deg });
+      change({ rot: deg });
     });
   }
 
@@ -215,6 +233,7 @@ export function ItemView({
 
   function onDoubleClick() {
     if (item.type === 'text' || framed) setEditing(true);
+    else if (item.type === 'link' && item.url) window.open(item.url, '_blank', 'noopener,noreferrer');
     else if (item.type === 'layout') onOpen?.(item);
   }
 
@@ -224,6 +243,12 @@ export function ItemView({
       style={boxStyle(item, unit)}
       onPointerDown={onBodyPointerDown}
       onDoubleClick={onDoubleClick}
+      onContextMenu={(e) => {
+        if (!onMenu || editing) return;
+        e.preventDefault();
+        onSelect(item.id);
+        onMenu(item, e.clientX, e.clientY);
+      }}
     >
       {item.type === 'image' && (
         <img src={imageSrc(item, record)} alt="" draggable={false} className={item.bind ? 'bound' : undefined} />
@@ -258,17 +283,45 @@ export function ItemView({
           +
         </button>
       )}
+      {item.type === 'link' && (
+        <div className="link-card">
+          {item.src && <img src={item.src} alt="" draggable={false} referrerPolicy="no-referrer" />}
+          <div className="link-card-text">
+            <span className="link-site">{item.label}</span>
+            <strong>{item.text}</strong>
+          </div>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => item.url && window.open(item.url, '_blank', 'noopener,noreferrer')}
+            title="This site cannot be shown inside another page, so it opens in a new tab"
+          >
+            Open in a new tab ↗
+          </button>
+        </div>
+      )}
       {framed && (
         <>
           <div className="embed-bar">
             <span>{item.label ?? 'Link'}</span>
             <span className="hint">{using ? 'Click outside to move it' : 'Double-click to use'}</span>
+            {item.type === 'embed' && (
+              <button
+                className="embed-open"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => item.url && window.open(item.url, '_blank', 'noopener,noreferrer')}
+                title="Open in a new tab. Use this if the page stays blank here."
+              >
+                ↗
+              </button>
+            )}
           </div>
           {item.type === 'embed' && (
             <iframe
               src={item.url}
               title={item.label ?? 'Embedded page'}
               allow="autoplay; fullscreen; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"
+              // Video sites refuse to play without knowing which page is showing them.
+              referrerPolicy="strict-origin-when-cross-origin"
               allowFullScreen
             />
           )}
@@ -300,7 +353,22 @@ export function ItemView({
               onPointerDown={(e) => onResizePointerDown(e, sx, sy)}
             />
           ))}
-          <div className="handle rotate" onPointerDown={onRotatePointerDown} />
+          {!noRotate && <div className="handle rotate" onPointerDown={onRotatePointerDown} />}
+          {onMenu && (
+            // The same menu as right-click, for touch screens where there is no right-click.
+            <button
+              className="item-more"
+              aria-label="More options"
+              title="More options"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                onMenu(item, r.left, r.bottom + 4);
+              }}
+            >
+              ⋯
+            </button>
+          )}
         </>
       )}
     </div>

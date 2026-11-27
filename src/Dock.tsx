@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ConnectDialog } from './ConnectDialog';
 import { getSession, signOut } from './session';
-import { isPageLocation, updateItem, useItems } from './store';
-import { renameThisDevice, thisDevice, useConnected, useDevices, useKnownDevices } from './sync';
+import { DeviceDialog } from './DeviceDialog';
+import { isPageLocation, sendItem, useItems } from './store';
+import { kindLabel, thisDevice, useConnected, useDevices, useKnownDevices } from './sync';
 
 interface Props {
   mode: Mode;
@@ -53,10 +54,7 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
     .map((id) => known.get(id) ?? { id, name: 'Unknown device', kind: 'computer' as const });
   const mine = counts.get(thisDevice.id) ?? 0;
 
-  function rename() {
-    const name = window.prompt('Name this device', thisDevice.name);
-    if (name) renameThisDevice(name);
-  }
+  const [describing, setDescribing] = useState(false);
 
   return (
     <div className="dock">
@@ -82,17 +80,19 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
             data-device-id={d.id}
             className={`device${isMine ? ' mine' : ''}${onlineIds.has(d.id) ? '' : ' away'}`}
             title={
-              (isMine ? 'This device. Double-click to rename. ' : '') +
+              (isMine ? 'This device. Click to change its name or type. ' : '') +
               `Drag an item here, or select one and click, to send it to ${d.name}.`
             }
             onClick={() => {
-              if (!selected) return;
-              updateItem(selected, { location: d.id });
-              onSent();
+              if (selected) {
+                sendItem(selected, d.id);
+                onSent();
+              } else if (isMine) {
+                setDescribing(true);
+              }
             }}
-            onDoubleClick={isMine ? rename : undefined}
           >
-            <span className="kind">{d.kind}</span>
+            <span className="kind">{kindLabel(d.kind)}</span>
             {d.name}
             {count > 0 && <span className="count">{count}</span>}
             {isMine && <span className="you">this device</span>}
@@ -108,6 +108,7 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
       )}
       {/* Rendered at the top of the page: the dock is a small strip, and the dialog must cover the screen. */}
       {connecting && createPortal(<ConnectDialog onClose={() => setConnecting(false)} />, document.body)}
+      {describing && createPortal(<DeviceDialog firstTime={false} onClose={() => setDescribing(false)} />, document.body)}
 
       {user && (
         <button className="device" onClick={() => void signOut()} title={`Signed in as ${user.email}`}>
