@@ -45,6 +45,8 @@ interface Props {
    * cannot be dragged, and shows no frame around it.
    */
   fullScreen?: boolean;
+  /** Puts the item full screen; shown as a button on a window's title bar. */
+  onFullScreen?: (item: Item) => void;
   /** Opens the item's menu (right-click, or its "more" button), at a screen position. */
   onMenu?: (item: Item, clientX: number, clientY: number) => void;
 }
@@ -135,6 +137,7 @@ export function ItemView({
   onChange,
   noRotate,
   fullScreen,
+  onFullScreen,
   onMenu,
 }: Props) {
   /** Writes a move, resize, rotation or send. */
@@ -145,9 +148,8 @@ export function ItemView({
   };
   const [editing, setEditing] = useState(false);
   const busy = useBgStatus(item.id);
-  /** An embedded page being used: the mouse goes to the page, not to moving the item. */
+  /** A window: a live page, video or PDF, with a title bar to move it by. */
   const framed = item.type === 'embed' || item.type === 'pdf' || item.type === 'video';
-  const using = framed && (editing || !!fullScreen);
   const ownText = item.type === 'text' && !flow ? (item.text ?? '') : null;
   const ownHtml = useMemo(
     () => (ownText === null ? '' : renderAll(record ? fillTemplate(ownText, record) : ownText)),
@@ -211,8 +213,10 @@ export function ItemView({
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
       window.removeEventListener('pointercancel', end);
+      document.body.classList.remove('moving-item');
       onEnd?.(ev);
     };
+    document.body.classList.add('moving-item'); // see onBodyPointerDown
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
@@ -235,6 +239,14 @@ export function ItemView({
   function onBodyPointerDown(e: ReactPointerEvent) {
     if (editing || fullScreen) {
       e.stopPropagation();
+      return;
+    }
+    // A window is moved by its title bar. A press anywhere else in it belongs
+    // to the content (the video's controls, the PDF's buttons), so it is left alone.
+    if (framed && !(e.target as HTMLElement).closest('.embed-bar')) {
+      e.stopPropagation();
+      onSelect(item.id);
+      bringToFront(item.id);
       return;
     }
     e.stopPropagation();
@@ -305,7 +317,12 @@ export function ItemView({
       window.removeEventListener('pointerup', onEnd);
       window.removeEventListener('pointercancel', onEnd);
       window.removeEventListener('pointerdown', onOtherFinger, true);
+      document.body.classList.remove('moving-item');
     };
+    // While something is being moved, live pages and videos stop taking the
+    // pointer (see styles.css); otherwise the drag would stall whenever the
+    // pointer crossed one, and a second finger on one could not join a pinch.
+    document.body.classList.add('moving-item');
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onEnd);
     window.addEventListener('pointercancel', onEnd);
@@ -357,7 +374,7 @@ export function ItemView({
   }
 
   function onDoubleClick() {
-    if (item.type === 'text' || framed) setEditing(true);
+    if (item.type === 'text') setEditing(true);
     else if (item.type === 'link' && item.url) window.open(item.url, '_blank', 'noopener,noreferrer');
     else if (item.type === 'layout') onOpen?.(item);
   }
@@ -427,17 +444,50 @@ export function ItemView({
       )}
       {framed && (
         <>
-          <div className="embed-bar">
-            <span>{item.label ?? 'Link'}</span>
-            <span className="hint">{using ? 'Click outside to move it' : 'Double-click to use'}</span>
+          {/*
+            A window: the title bar moves it (always), and everything below the
+            bar is the live content, which takes clicks and touches directly.
+          */}
+          <div className="embed-bar" title="Drag to move">
+            <span className="grip" aria-hidden="true">
+              ⠿
+            </span>
+            <span className="embed-title">{item.label ?? 'Link'}</span>
             {item.type === 'embed' && (
               <button
                 className="embed-open"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => item.url && window.open(item.url, '_blank', 'noopener,noreferrer')}
+                aria-label="Open in a new tab"
                 title="Open in a new tab. Use this if the page stays blank here."
               >
                 ↗
+              </button>
+            )}
+            {onFullScreen && (
+              <button
+                className="embed-open"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onFullScreen(item)}
+                aria-label="Full screen"
+                title="Full screen"
+              >
+                ⛶
+              </button>
+            )}
+            {onMenu && (
+              <button
+                className="embed-open"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  onSelect(item.id);
+                  onMenu(item, r.left, r.bottom + 4);
+                }}
+                aria-label="More options"
+                title="More options"
+              >
+                ⋯
               </button>
             )}
           </div>
@@ -453,8 +503,8 @@ export function ItemView({
           )}
           {item.type === 'video' && <video src={item.url} controls preload="metadata" playsInline />}
           {item.type === 'pdf' && item.url && <PdfView url={item.url} />}
-          {/* A cover takes the mouse so the item can be dragged; it lifts while the content is in use. */}
-          {!using && <div className="embed-cover" />}
+          {/* A corner to resize by, always there, since the content itself takes the pointer. */}
+          {!fullScreen && <div className="window-grip" title="Drag to resize" onPointerDown={(e) => onResizePointerDown(e, 1, 1)} />}
         </>
       )}
       {item.type === 'layout' && (

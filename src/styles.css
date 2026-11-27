@@ -356,21 +356,68 @@ body {
   overflow: visible; /* so the resize handles show */
 }
 
+/* A window's title bar: the part you move it by. */
 .embed-bar {
   flex: none;
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 10px;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 4px 6px 4px 8px;
   font-size: 13px;
   white-space: nowrap;
   border-bottom: 1px solid var(--line);
+  border-radius: 10px 10px 0 0;
+  background: var(--surface);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.embed-bar .hint {
+.embed-bar:active {
+  cursor: grabbing;
+}
+
+.embed-bar .grip {
   color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.embed-title {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.embed-bar .embed-open {
+  min-width: 30px;
+  height: 28px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* The corner a window is resized by. */
+.window-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background:
+    linear-gradient(135deg, transparent 50%, var(--accent) 50%, var(--accent) 60%, transparent 60%, transparent 72%, var(--accent) 72%, var(--accent) 82%, transparent 82%);
+  border-bottom-right-radius: 10px;
+}
+
+/* While any item is being moved or resized, live pages and videos let the
+   pointer pass through them, so the drag is not interrupted when it crosses one. */
+body.moving-item iframe,
+body.moving-item video {
+  pointer-events: none;
 }
 
 .item-embed iframe {
@@ -379,11 +426,6 @@ body {
   width: 100%;
   border: 0;
   background: #fff;
-}
-
-.embed-cover {
-  position: absolute;
-  inset: 0;
 }
 
 .tile-frame {

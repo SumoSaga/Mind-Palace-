@@ -204,6 +204,7 @@ export function Stage({
                 layout={it.layoutId ? layouts.find((l) => l.id === it.layoutId) : undefined}
                 onOpen={(item) => item.layoutId && onOpenLayout(item.layoutId)}
                 onMenu={(item, x, y) => setMenu({ id: item.id, x, y })}
+                onFullScreen={(item) => setFullId(item.id)}
                 onChange={(patch) => {
                   if (filling) return; // nothing to move while it fills the screen
                   // Dropped on a device in the dock: send it there.

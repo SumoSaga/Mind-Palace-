@@ -100,6 +100,13 @@ Media keeps playing:
 - Putting a video or live page full screen grows the same player to fill the screen, instead of loading a second copy, so it continues from where it was.
 - Sending something to another device still restarts it there: it is a different browser.
 
+Windows (live pages, videos and PDFs):
+
+- The content is always live: a single click or tap goes straight to the video's controls, the page, or the PDF's buttons. There is no separate "use" mode.
+- The title bar always moves the window, with a mouse or a finger, while the content keeps running. The bar also has buttons for opening in a new tab, full screen, and the menu.
+- The marked bottom-right corner resizes it. Holding the title bar with one finger and pinching with another also resizes it.
+- While any item is being moved, live pages and videos let the pointer pass through, so a drag is not interrupted when it crosses one.
+
 Devices and Stages:
 
 - The first time a device opens Mind Palace it is asked for a name and a type (phone, tablet, laptop, desktop PC or TV). Click the device's own entry in the dock to change them.
