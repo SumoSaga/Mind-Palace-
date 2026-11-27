@@ -4,7 +4,9 @@
   "type": "module",
   "description": "The packages the server needs at run time. Used when building the hosted image, so it does not carry the app's build tools. Keep the versions in step with the root package.json.",
   "dependencies": {
+    "@anthropic-ai/sdk": "*",
     "lib0": "^0.2.120",
+    "zod": "*",
     "ws": "^8.23.0",
     "y-protocols": "^1.0.7",
     "yjs": "^13.6.33"

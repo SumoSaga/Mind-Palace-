@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { configProblems, cookieHeader, makeSession, readConfig, readSession, verifyGoogleToken } from './auth.mjs';
+import { AiError, aiAvailable, rankLayouts } from './ai.mjs';
 import { handleFiles } from './files.mjs';
 import { createRooms, validRoomName } from './rooms.mjs';
 import { handleStatic } from './static.mjs';
@@ -91,10 +92,28 @@ async function handleAuth(req, res, pathname) {
   return json(res, 404, { error: 'Not found' });
 }
 
+/** Optional Claude features; see ai.mjs. */
+async function handleAi(req, res, pathname) {
+  if (req.method === 'GET' && pathname === '/ai/status') return json(res, 200, { available: aiAvailable() });
+  if (req.method === 'POST' && pathname === '/ai/rank') {
+    if (!userOf(req)) return json(res, 401, { error: 'Sign in first.' });
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Not allowed from another site.' });
+    try {
+      return json(res, 200, { ranking: await rankLayouts(await readJson(req, 64 * 1024)) });
+    } catch (err) {
+      if (err instanceof AiError) return json(res, err.status, { error: err.message });
+      console.error('[ai] ranking failed', err);
+      return json(res, 500, { error: 'Something went wrong asking Claude.' });
+    }
+  }
+  return json(res, 404, { error: 'Not found' });
+}
+
 const server = http.createServer((req, res) => {
   const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
   let work;
   if (pathname.startsWith('/auth/')) work = handleAuth(req, res, pathname);
+  else if (pathname.startsWith('/ai/')) work = handleAi(req, res, pathname);
   else if (pathname === '/files' || pathname.startsWith('/files/')) {
     if (!userOf(req)) work = Promise.resolve(json(res, 401, { error: 'Sign in first.' }));
     else if (req.method === 'POST' && !sameOrigin(req)) work = Promise.resolve(json(res, 403, { error: 'Not allowed from another site.' }));

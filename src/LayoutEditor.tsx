@@ -819,13 +819,40 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           }}
         />
       )}
-      {suggesting && current && (
-        <SuggestDialog
-          layout={layout}
-          pageItems={items.filter((it) => it.location === pageLocation(current.page.id))}
-          onClose={() => setSuggesting(false)}
-        />
-      )}
+      {suggesting &&
+        current &&
+        (() => {
+          const pageItems = items.filter((it) => it.location === pageLocation(current.page.id));
+          // What the page's text amounts to: its length, how it opens, and whether it can run on.
+          const texts = pageItems.filter((it) => it.type === 'text').sort((a, b) => a.y - b.y);
+          const seenStories = new Set<string>();
+          let textChars = 0;
+          let flowsOn = false;
+          let sample = '';
+          for (const t of texts) {
+            const f = flow.get(t.id);
+            if (f) {
+              flowsOn = true;
+              if (seenStories.has(f.storyId)) continue; // a story's later frames share its text
+              seenStories.add(f.storyId);
+              const whole = stories.find((s) => s.id === f.storyId)?.text ?? '';
+              textChars += whole.length - f.start;
+              sample += `${whole.slice(f.start, f.start + 1500)}\n\n`;
+            } else {
+              textChars += (t.text ?? '').length;
+              sample += `${t.text ?? ''}\n\n`;
+            }
+          }
+          return (
+            <SuggestDialog
+              layout={layout}
+              pageItems={pageItems}
+              content={{ textChars, flowsOn, startsWithHeading: /^\s*#{1,3} /.test(sample) }}
+              textSample={sample.slice(0, 1500)}
+              onClose={() => setSuggesting(false)}
+            />
+          );
+        })()}
       {docDialog === 'pull' && <PullDialog onClose={() => setDocDialog(null)} onPlace={placeFromDoc} />}
       {docDialog === 'push' && selStory?.source && (
         <PushDialog

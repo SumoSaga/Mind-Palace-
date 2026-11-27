@@ -75,7 +75,10 @@ Step 4 (layout suggestions and themes), first slice:
 - Themes: "Plain", "High fantasy" and "Modern day". A theme sets the body font, a separate heading font and colour, ink colour, body size and paper colour, restyles all the text in the layout, and becomes the default for new frames. Paper colour prints. See `src/themes.ts`.
 - "Suggest layouts" shows arrangements for the current page as thumbnails, built from a library of page patterns (art on top, edge to edge, at left or right, below, with one or two text columns). Picking one moves the page's frames; two-column patterns add a linked frame. See `src/suggest.ts`.
 
-Not built yet in step 4: an AI model choosing and ranking the patterns (they are offered in a fixed order), ornaments and textures in themes, cropping images to fill a shape, suggestions across several pages at once.
+- Suggestions are ranked for the page's content and shown best first with a reason. The built-in ranking (free, instant, nothing leaves the computer) weighs the shape of the art, how much text there is and whether it fits, line length, page width, and whether the text opens with a heading.
+- Optional: with `ANTHROPIC_API_KEY` set for the server (for example as a line in `.env.local`), the picker gains an "Ask Claude to rank these" button. Each click sends the start of the page's text and a description of each option to Anthropic and is billed to that key. Without a key the button does not appear. See `server/ai.mjs`.
+
+Not built yet in step 4: ornaments and textures in themes, cropping images to fill a shape, suggestions across several pages at once.
 
 Files on the Desk:
 
