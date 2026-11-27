@@ -57,6 +57,21 @@ export function itemHtml(item: Item, flow: FlowInfo | undefined, record?: Record
 }
 
 const MIN_SIZE = 12;
+
+/** A drag or pinch in progress on an item. */
+interface Gesture {
+  /** Screen positions of the fingers (or the mouse) involved. */
+  touches: Map<number, Point>;
+  /** Set while one finger is moving the item. */
+  move: { start: Point; x: number; y: number } | null;
+  /** Set while two fingers are resizing it. */
+  pinch: { dist: number; w: number; h: number; cx: number; cy: number } | null;
+  /** Whether this gesture has included a pinch at any point. */
+  pinched: boolean;
+  /** Where the item was when the gesture began. */
+  home: Point;
+  stop: () => void;
+}
 const CORNERS: Array<[number, number]> = [
   [-1, -1],
   [1, -1],
@@ -134,10 +149,37 @@ export function ItemView({
   );
   const html = flow ? flow.html : ownHtml;
   const textRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The newest values, for pointer and wheel listeners that outlive one render.
+  const live = useRef({ item, toWorld, change, onDragEnd });
+  live.current = { item, toWorld, change, onDragEnd };
+  const gesture = useRef<Gesture | null>(null);
 
   useEffect(() => {
     if (!selected) setEditing(false);
   }, [selected]);
+
+  // Stop listening if the item goes away in the middle of a drag or pinch.
+  useEffect(() => () => gesture.current?.stop(), []);
+
+  // A pinch on a laptop trackpad reaches the page as a wheel event with Ctrl
+  // set (as does Ctrl + mouse wheel). Over the selected item it resizes that
+  // item about its centre; anywhere else it zooms the surface as before.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || !selected || editing) return;
+    const onWheel = (ev: WheelEvent) => {
+      if (!ev.ctrlKey) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const it = live.current.item;
+      const w = Math.max(MIN_SIZE, it.w * Math.exp(-ev.deltaY * 0.01));
+      const h = w * (it.h / it.w);
+      live.current.change({ x: it.x + it.w / 2 - w / 2, y: it.y + it.h / 2 - h / 2, w, h });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [selected, editing]);
 
   useEffect(() => {
     if (editing && textRef.current) {
@@ -170,30 +212,107 @@ export function ItemView({
     window.addEventListener('pointercancel', end);
   }
 
+  /** Starts resizing with two fingers: the item grows and shrinks about its centre. */
+  function beginPinch(g: Gesture) {
+    const [a, b] = [...g.touches.values()];
+    const it = live.current.item;
+    g.pinch = { dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), w: it.w, h: it.h, cx: it.x + it.w / 2, cy: it.y + it.h / 2 };
+    g.move = null;
+    g.pinched = true;
+    highlightDevice(null);
+  }
+
+  /**
+   * One finger (or the mouse) on an item moves it. A second finger turns that
+   * into a pinch, which resizes it. Lifting back to one finger carries on moving.
+   */
   function onBodyPointerDown(e: ReactPointerEvent) {
     if (editing) {
       e.stopPropagation();
       return;
     }
+    e.stopPropagation();
+    e.preventDefault();
+    const active = gesture.current;
+    if (active) {
+      // A second finger landing on the item itself.
+      if (!active.touches.has(e.pointerId) && active.touches.size === 1) {
+        active.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        beginPinch(active);
+      }
+      return;
+    }
     onSelect(item.id);
     bringToFront(item.id);
-    const start = toWorld(e.clientX, e.clientY);
-    const { x, y } = item;
-    startDrag(
-      e,
-      (p, ev) => {
-        change({ x: x + p.x - start.x, y: y + p.y - start.y });
-        highlightDevice(deviceAt(ev.clientX, ev.clientY));
-      },
-      (ev) => {
-        // Dropped on a device in the dock: send it to that Stage, and put its
-        // marker back where the item sat before the drag.
-        const target = ev.type === 'pointerup' ? deviceAt(ev.clientX, ev.clientY) : null;
-        highlightDevice(null);
-        if (target) change({ x, y, location: target });
-        else onDragEnd?.(item.id);
-      },
-    );
+
+    const onMove = (ev: PointerEvent) => {
+      const g = gesture.current;
+      if (!g || !g.touches.has(ev.pointerId)) return;
+      g.touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (g.pinch) {
+        const [a, b] = [...g.touches.values()];
+        const scale = Math.hypot(a.x - b.x, a.y - b.y) / g.pinch.dist;
+        const w = Math.max(MIN_SIZE, g.pinch.w * scale);
+        const h = w * (g.pinch.h / g.pinch.w); // keep the item's proportions
+        live.current.change({ x: g.pinch.cx - w / 2, y: g.pinch.cy - h / 2, w, h });
+      } else if (g.move) {
+        const p = live.current.toWorld(ev.clientX, ev.clientY);
+        live.current.change({ x: g.move.x + p.x - g.move.start.x, y: g.move.y + p.y - g.move.start.y });
+        if (!g.pinched) highlightDevice(deviceAt(ev.clientX, ev.clientY));
+      }
+    };
+    const onEnd = (ev: PointerEvent) => {
+      const g = gesture.current;
+      if (!g || !g.touches.has(ev.pointerId)) return;
+      g.touches.delete(ev.pointerId);
+      if (g.touches.size === 1) {
+        // Back to one finger: carry on moving from where the item is now.
+        const [p] = [...g.touches.values()];
+        const it = live.current.item;
+        g.pinch = null;
+        g.move = { start: live.current.toWorld(p.x, p.y), x: it.x, y: it.y };
+        return;
+      }
+      if (g.touches.size > 1) return;
+      g.stop();
+      gesture.current = null;
+      highlightDevice(null);
+      // Dropped on a device in the dock: send it to that Stage, and put its
+      // marker back where the item sat before the drag. Not after a pinch.
+      const target = !g.pinched && ev.type === 'pointerup' ? deviceAt(ev.clientX, ev.clientY) : null;
+      if (target) live.current.change({ x: g.home.x, y: g.home.y, location: target });
+      else live.current.onDragEnd?.(live.current.item.id);
+    };
+    // A second finger often lands beside a small item rather than on it. While
+    // one finger holds this item, any other finger joins its pinch, and is kept
+    // from panning the surface underneath.
+    const onOtherFinger = (ev: PointerEvent) => {
+      const g = gesture.current;
+      if (!g || ev.pointerType !== 'touch' || g.touches.has(ev.pointerId) || g.touches.size !== 1) return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      g.touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      beginPinch(g);
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('pointerdown', onOtherFinger, true);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    window.addEventListener('pointerdown', onOtherFinger, true);
+
+    gesture.current = {
+      touches: new Map([[e.pointerId, { x: e.clientX, y: e.clientY }]]),
+      move: { start: toWorld(e.clientX, e.clientY), x: item.x, y: item.y },
+      pinch: null,
+      pinched: false,
+      home: { x: item.x, y: item.y },
+      stop,
+    };
   }
 
   function onResizePointerDown(e: ReactPointerEvent, sx: number, sy: number) {
@@ -240,6 +359,7 @@ export function ItemView({
   return (
     <div
       className={`item item-${item.type}${framed ? ' item-framed' : ''}${selected ? ' selected' : ''}${editing ? ' editing' : ''}${unit === 'pt' ? ' on-page' : ''}${busy ? ' busy' : ''}`}
+      ref={rootRef}
       style={boxStyle(item, unit)}
       onPointerDown={onBodyPointerDown}
       onDoubleClick={onDoubleClick}

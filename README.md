@@ -94,6 +94,7 @@ Devices and Stages:
 - A Stage is a surface like the Desk. Things sent to a device can be moved and resized there without disturbing the place they return to on the Desk; "Fit all" shows everything.
 - Right-click an item (or press the ⋯ button on a selected item, for touch screens) for its menu. On a Stage: full screen, send to another device, send back to the Desk. On the Desk: send to a device, delete.
 - Full screen shows one item filling the device; Esc or "Exit full screen" leaves it.
+- Pinch to resize, on the Desk, a Stage or a layout page. On a touch screen, hold an item with one finger and pinch with a second (the second finger may land beside the item). On a laptop trackpad, select the item and pinch over it; Ctrl + mouse wheel does the same. The item keeps its proportions and stays centred. A pinch anywhere else zooms the surface.
 
 Links:
 
