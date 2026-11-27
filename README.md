@@ -73,7 +73,15 @@ Step 4 (layout suggestions and themes), first slice:
 
 Not built yet in step 4: an AI model choosing and ranking the patterns (they are offered in a fixed order), ornaments and textures in themes, cropping images to fill a shape, suggestions across several pages at once.
 
-`npm run dev` starts two things: the app, and a development sync server (`server/sync-server.mjs`) that relays changes between devices. The sync server keeps spaces in memory only.
+Files on the Desk:
+
+- "Add file" (or dropping files on the Desk) accepts images, PDFs and videos (MP4, WebM).
+- A PDF opens in a built-in reader, one page at a time with previous and next, fitted to the item's width. The page being read is per device. See `src/PdfView.tsx`.
+- A video plays in place with the browser's controls.
+- Like links, PDFs and videos move, resize and go to Stages; double-click to use them, click away to move them.
+- PDFs and videos are not stored inside the synced workspace. They are uploaded to a file store on the sync server (`server/files.mjs`, kept in `data/files/`, which Git ignores), and items point at them. Only PDF, MP4, WebM and common image types are accepted. Deleting an item does not yet delete its file.
+
+`npm run dev` starts two things: the app, and a development server (`server/sync-server.mjs`) that relays changes between devices and holds the file store. It keeps spaces in memory only; each browser re-sends its saved copy on connecting.
 
 Not built yet: sign-in, cloud storage, hosting outside the local network.
 

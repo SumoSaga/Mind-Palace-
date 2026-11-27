@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
 import { BackgroundButtons } from './bg/removeBackground';
 import { toEmbed } from './embed';
+import { fileKind, uploadFile } from './files';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import type { Point } from './hooks';
 import { ItemView } from './ItemView';
@@ -35,6 +36,8 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
   const [linking, setLinking] = useState(false);
   const [link, setLink] = useState('');
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
 
   // An item that has left the Desk is no longer selectable on it.
@@ -56,6 +59,25 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
   async function addImages(files: File[], at: Point) {
     let offset = 0;
     for (const file of files) {
+      const kind = fileKind(file);
+      if (kind) {
+        // PDFs and videos go to the file store; the Desk item only points at them.
+        setUploading((n) => n + 1);
+        try {
+          const url = await uploadFile(file);
+          const w = kind === 'pdf' ? 420 : 560;
+          const h = kind === 'pdf' ? 600 : 360;
+          setSelected(
+            addItem({ type: kind, url, label: file.name, x: at.x - w / 2 + offset, y: at.y - h / 2 + offset, w, h }),
+          );
+          offset += 24;
+        } catch (err) {
+          setUploadError(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          setUploading((n) => n - 1);
+        }
+        continue;
+      }
       if (!file.type.startsWith('image/')) continue;
       const { src, w, h } = await readImage(file);
       const scale = Math.min(1, MAX_NEW_IMAGE_WIDTH / w);
@@ -151,7 +173,9 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
       <div className="toolbar">
         <span className="brand">Mind Palace</span>
         <button onClick={() => addText(viewCentre())}>Add text</button>
-        <button onClick={() => fileRef.current?.click()}>Add image</button>
+        <button onClick={() => fileRef.current?.click()} title="Add images, PDFs or videos (MP4, WebM)">
+          {uploading ? 'Uploading…' : 'Add file'}
+        </button>
         <button
           onClick={() => setLinking(true)}
           title="Show a Google Doc, Sheet or Slides file, or a YouTube or Vimeo video, live on the Desk"
@@ -179,7 +203,7 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf,video/mp4,video/webm"
           multiple
           hidden
           onChange={(e) => {
@@ -189,6 +213,13 @@ export function Desk({ active, selected, setSelected, onOpenLayout }: Props) {
           }}
         />
       </div>
+
+      {uploadError && (
+        <div className="notice" role="alert">
+          Could not add {uploadError}
+          <button onClick={() => setUploadError(null)}>Dismiss</button>
+        </div>
+      )}
 
       {linking && (
         <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && setLinking(false)}>

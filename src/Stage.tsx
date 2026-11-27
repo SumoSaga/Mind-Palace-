@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PdfView } from './PdfView';
 import { updateItem, useItems } from './store';
 import type { Item } from './store';
 import { thisDevice, useDevices } from './sync';
@@ -9,6 +10,7 @@ function label(item: Item): string {
   if (item.type === 'image') return 'Image';
   if (item.type === 'layout') return 'Layout';
   if (item.type === 'embed') return item.label ?? 'Link';
+  if (item.type === 'pdf' || item.type === 'video') return item.label ?? (item.type === 'pdf' ? 'PDF' : 'Video');
   const text = (item.text ?? '').trim().replace(/\s+/g, ' ');
   return text ? (text.length > 28 ? `${text.slice(0, 28)}…` : text) : 'Text';
 }
@@ -96,6 +98,8 @@ export function Stage({
                   allowFullScreen
                 />
               )}
+              {it.type === 'video' && <video className="tile-frame" src={it.url} controls preload="metadata" playsInline />}
+              {it.type === 'pdf' && it.url && <PdfView url={it.url} />}
               {it.type === 'layout' && (
                 <div className="tile-open">
                   <button onClick={() => it.layoutId && onOpenLayout(it.layoutId)}>Open layout</button>

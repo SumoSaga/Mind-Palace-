@@ -9,7 +9,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
  * copy to the sync server so changes travel between devices.
  */
 
-export type ItemType = 'text' | 'image' | 'layout' | 'embed';
+export type ItemType = 'text' | 'image' | 'layout' | 'embed' | 'pdf' | 'video';
 
 export interface Item {
   id: string;
@@ -36,7 +36,10 @@ export interface Item {
    */
   storyId?: string;
   storyIndex?: number;
-  /** For type 'embed': the address shown live in a frame, and a label for its title bar. */
+  /**
+   * For type 'embed': the address shown live in a frame. For 'pdf' and 'video':
+   * the file's address in the file store. `label` is shown in the item's title bar.
+   */
   url?: string;
   label?: string;
   /** For type 'layout': the layout document this Desk card opens. */

@@ -4,6 +4,7 @@ import { useBgStatus } from './bg/removeBackground';
 import { deviceAt, highlightDevice } from './Dock';
 import type { FlowInfo } from './flow';
 import { renderAll } from './markup';
+import { PdfView } from './PdfView';
 import type { Point } from './hooks';
 import { bringToFront, updateItem } from './store';
 import type { Item, Layout } from './store';
@@ -95,7 +96,8 @@ export function ItemView({
   const [editing, setEditing] = useState(false);
   const busy = useBgStatus(item.id);
   /** An embedded page being used: the mouse goes to the page, not to moving the item. */
-  const using = item.type === 'embed' && editing;
+  const framed = item.type === 'embed' || item.type === 'pdf' || item.type === 'video';
+  const using = framed && editing;
   const ownText = item.type === 'text' && !flow ? (item.text ?? '') : null;
   const ownHtml = useMemo(() => (ownText === null ? '' : renderAll(ownText)), [ownText]);
   const html = flow ? flow.html : ownHtml;
@@ -198,13 +200,13 @@ export function ItemView({
   }
 
   function onDoubleClick() {
-    if (item.type === 'text' || item.type === 'embed') setEditing(true);
+    if (item.type === 'text' || framed) setEditing(true);
     else if (item.type === 'layout') onOpen?.(item);
   }
 
   return (
     <div
-      className={`item item-${item.type}${selected ? ' selected' : ''}${editing ? ' editing' : ''}${unit === 'pt' ? ' on-page' : ''}${busy ? ' busy' : ''}`}
+      className={`item item-${item.type}${framed ? ' item-framed' : ''}${selected ? ' selected' : ''}${editing ? ' editing' : ''}${unit === 'pt' ? ' on-page' : ''}${busy ? ' busy' : ''}`}
       style={boxStyle(item, unit)}
       onPointerDown={onBodyPointerDown}
       onDoubleClick={onDoubleClick}
@@ -240,19 +242,23 @@ export function ItemView({
           +
         </button>
       )}
-      {item.type === 'embed' && (
+      {framed && (
         <>
           <div className="embed-bar">
             <span>{item.label ?? 'Link'}</span>
             <span className="hint">{using ? 'Click outside to move it' : 'Double-click to use'}</span>
           </div>
-          <iframe
-            src={item.url}
-            title={item.label ?? 'Embedded page'}
-            allow="autoplay; fullscreen; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"
-            allowFullScreen
-          />
-          {/* A cover takes the mouse so the item can be dragged; it lifts while the page is in use. */}
+          {item.type === 'embed' && (
+            <iframe
+              src={item.url}
+              title={item.label ?? 'Embedded page'}
+              allow="autoplay; fullscreen; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"
+              allowFullScreen
+            />
+          )}
+          {item.type === 'video' && <video src={item.url} controls preload="metadata" playsInline />}
+          {item.type === 'pdf' && item.url && <PdfView url={item.url} />}
+          {/* A cover takes the mouse so the item can be dragged; it lifts while the content is in use. */}
           {!using && <div className="embed-cover" />}
         </>
       )}

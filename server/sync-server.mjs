@@ -2,7 +2,9 @@
 // between every browser connected to the same space. It keeps each space in
 // memory only; browsers hold their own saved copy and re-send it on connect.
 // This is replaced by the hosted backend later.
+import http from 'node:http';
 import { WebSocketServer } from 'ws';
+import { handleFiles } from './files.mjs';
 import * as Y from 'yjs';
 import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
@@ -58,7 +60,17 @@ function getRoom(name) {
   return room;
 }
 
-const wss = new WebSocketServer({ port: PORT, host: '0.0.0.0' });
+// The same port also serves the file store (see files.mjs): large files such
+// as PDFs and videos live on disk here, and items in the workspace point at them.
+const server = http.createServer((req, res) => {
+  handleFiles(req, res).catch((err) => {
+    console.error('[files] error', err);
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
+  });
+});
+const wss = new WebSocketServer({ server });
+server.listen(PORT, '0.0.0.0');
 
 wss.on('connection', (ws, req) => {
   const name = decodeURIComponent((req.url ?? '/').slice(1).split('?')[0]) || 'default';
