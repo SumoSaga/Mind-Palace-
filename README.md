@@ -43,7 +43,11 @@ Step 2 (manual layout tool), first slice:
 
 - Card sheets: "Tile onto Letter/A4 sheets" prints several small pages on each sheet of paper, choosing the paper orientation that fits more, with cut marks in the margin. "Double-sided" treats odd pages as fronts and even pages as backs, printing backs on alternate sheets with the columns mirrored (flip the paper side to side). See `src/PrintView.tsx`.
 
-Not built yet in step 2: uploading your own font files, cropping images inside frames.
+- Data-driven cards: "Card data" turns a layout into a template. Paste rows copied from Google Sheets or Excel, or choose a CSV file; each row makes one card. Text frames use `{{Column}}` placeholders, an image can take its picture from a column of image links, and a `Count` column (or Qty, Quantity, Copies) sets copies per card. The editor previews one row at a time; printing makes every card, and works with sheet tiling and double-sided. See `src/cards/`; check the parser with `node scripts/test-cards.mjs`.
+- Print-service presets in the page-size menu: The Game Crafter card sizes and DriveThruRPG book sizes, each also setting that service's bleed and safe margin (specifications checked 27 November 2026; sources are noted in `src/LayoutEditor.tsx`).
+- Books (facing pages) have no bleed on the binding edge, on screen or in print, which is how book printers ask for files.
+
+Not built yet in step 2: uploading your own font files, cropping images inside frames, exporting cards as PNG images (which The Game Crafter requires), CMYK or PDF/X output (which DriveThruRPG requires), reading card data straight from a Google Sheet.
 
 Step 3 (linked text frames), first slice:
 

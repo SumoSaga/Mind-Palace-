@@ -1,9 +1,19 @@
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { FlowInfo } from './flow';
-import { boxStyle, itemHtml, textStyle } from './ItemView';
+import { boxStyle, imageSrc, itemHtml, textStyle } from './ItemView';
 import { pageLocation } from './store';
-import type { Item, Layout, Page } from './store';
+import type { Item, Layout, Page as LayoutPage } from './store';
+import { cardRows, rowRecord } from './cards/table';
+
+/** A page to print. In a card layout, each template page is printed once per data row. */
+type Page = LayoutPage & { row?: number };
+
+/** The pages to print: the layout's own, or for a card layout the template repeated for every card. */
+export function printPages(layout: Layout, pages: LayoutPage[]): Page[] {
+  if (!layout.data?.rows.length) return pages;
+  return cardRows(layout.data).flatMap((row) => pages.map((p) => ({ ...p, row })));
+}
 import { getTheme } from './themes';
 
 /** Paper sizes for tiling several small pages (cards) onto one sheet, in points. */
@@ -25,13 +35,19 @@ interface Cell {
   /** Top-left of the trimmed page on the sheet, in points. */
   x: number;
   y: number;
+  /** Bleed on the left and right edges, when it differs from the layout's bleed. */
+  bleedLeft?: number;
+  bleedRight?: number;
 }
 
 export interface PrintPlan {
   sheetW: number;
   sheetH: number;
   sheets: Cell[][];
+  /** Cut marks drawn on every sheet. */
   marks: CSSProperties[];
+  /** Crop marks that differ from sheet to sheet, by sheet index. */
+  sheetMarks?: CSSProperties[][];
   /** How many pages fit on one sheet; 1 when printing each page on its own. */
   perSheet: number;
   /** True when sheets were asked for but the page is too big for the paper. */
@@ -133,26 +149,36 @@ export function planPrint(layout: Layout, pages: Page[]): PrintPlan {
   }
 
   // One page per sheet: the sheet is the page plus its bleed, plus room for crop marks if on.
-  const pad = bleed + (layout.marks ? MARK_GAP + MARK_LENGTH : 0);
-  const sheetW = layout.w + pad * 2;
-  const sheetH = layout.h + pad * 2;
-  const marks: CSSProperties[] = [];
-  if (layout.marks) {
-    for (const x of [pad, pad + layout.w]) {
-      for (const y of [pad, pad + layout.h]) {
-        marks.push(hLine(x === pad ? 0 : sheetW - MARK_LENGTH, y, MARK_LENGTH));
-        marks.push(vLine(x, y === pad ? 0 : sheetH - MARK_LENGTH, MARK_LENGTH));
-      }
-    }
-  }
-  return {
-    sheetW,
-    sheetH,
-    sheets: pages.map((page) => [{ page, x: pad, y: pad }]),
-    marks,
-    perSheet: 1,
-    tooBig: !!paper,
-  };
+  const markPad = layout.marks ? MARK_GAP + MARK_LENGTH : 0;
+  // A bound book has no bleed on the binding edge (the inner edge of each facing
+  // page), which is how book printers ask for files. Page 1 is a right-hand page.
+  const bound = layout.facing && !layout.data && bleed > 0;
+  const sheetW = layout.w + (bound ? bleed : bleed * 2) + markPad * 2;
+  const sheetH = layout.h + bleed * 2 + markPad * 2;
+  const y = markPad + bleed;
+  const sheets: Cell[][] = pages.map((page, i) => {
+    const bindingLeft = i % 2 === 0;
+    const bleedLeft = bound && bindingLeft ? 0 : bleed;
+    const bleedRight = bound && !bindingLeft ? 0 : bleed;
+    return [{ page, x: markPad + bleedLeft, y, bleedLeft, bleedRight }];
+  });
+  const sheetMarks = sheets.map(([c]) => {
+    if (!layout.marks) return [];
+    const left = c.x - (c.bleedLeft ?? bleed) - MARK_GAP - MARK_LENGTH;
+    const right = c.x + layout.w + (c.bleedRight ?? bleed) + MARK_GAP;
+    const bottom = y + layout.h + bleed + MARK_GAP;
+    return [
+      hLine(left, y, MARK_LENGTH),
+      hLine(right, y, MARK_LENGTH),
+      hLine(left, y + layout.h, MARK_LENGTH),
+      hLine(right, y + layout.h, MARK_LENGTH),
+      vLine(c.x, 0, MARK_LENGTH),
+      vLine(c.x + layout.w, 0, MARK_LENGTH),
+      vLine(c.x, bottom, MARK_LENGTH),
+      vLine(c.x + layout.w, bottom, MARK_LENGTH),
+    ];
+  });
+  return { sheetW, sheetH, sheets, marks: [], sheetMarks, perSheet: 1, tooBig: !!paper };
 }
 
 /**
@@ -166,13 +192,13 @@ export function PrintView({
   flow,
 }: {
   layout: Layout;
-  pages: Page[];
+  pages: LayoutPage[];
   items: Item[];
   /** The portion of text each linked frame shows. */
   flow: Map<string, FlowInfo>;
 }) {
   const bleed = layout.bleed ?? 0;
-  const plan = planPrint(layout, pages);
+  const plan = planPrint(layout, printPages(layout, pages));
   const paper = getTheme(layout.theme).paper;
 
   return createPortal(
@@ -180,32 +206,35 @@ export function PrintView({
       <style>{`@page { size: ${plan.sheetW}pt ${plan.sheetH}pt; margin: 0; }`}</style>
       {plan.sheets.map((cells, s) => (
         <div key={s} className="print-page" style={{ width: pt(plan.sheetW), height: pt(plan.sheetH) }}>
-          {cells.map(({ page, x, y }) => {
+          {cells.map(({ page, x, y, bleedLeft = bleed, bleedRight = bleed }, c) => {
             const location = pageLocation(page.id);
+            const record = layout.data && page.row !== undefined ? rowRecord(layout.data, page.row) : undefined;
             return (
               // Everything outside the bleed is cut off; inside it, frames keep their page positions.
               <div
-                key={page.id}
+                key={c}
                 className="print-bleed"
                 style={{
-                  left: pt(x - bleed),
+                  left: pt(x - bleedLeft),
                   top: pt(y - bleed),
-                  width: pt(layout.w + bleed * 2),
+                  width: pt(layout.w + bleedLeft + bleedRight),
                   height: pt(layout.h + bleed * 2),
                   background: paper,
                 }}
               >
-                <div className="print-trim" style={{ left: pt(bleed), top: pt(bleed) }}>
+                <div className="print-trim" style={{ left: pt(bleedLeft), top: pt(bleed) }}>
                   {items
                     .filter((it) => it.location === location)
                     .map((it) => (
                       <div key={it.id} className={`item item-${it.type} on-page`} style={boxStyle(it, 'pt')}>
-                        {it.type === 'image' && <img src={it.src} alt="" />}
+                        {it.type === 'image' && (
+                          <img src={imageSrc(it, record)} alt="" className={it.bind ? 'bound' : undefined} />
+                        )}
                         {it.type === 'text' && (
                           <div
                             className="text"
                             style={textStyle(it, 'pt')}
-                            dangerouslySetInnerHTML={{ __html: itemHtml(it, flow.get(it.id)) }}
+                            dangerouslySetInnerHTML={{ __html: itemHtml(it, flow.get(it.id), record) }}
                           />
                         )}
                       </div>
@@ -214,7 +243,7 @@ export function PrintView({
               </div>
             );
           })}
-          {plan.marks.map((style, i) => (
+          {[...plan.marks, ...(plan.sheetMarks?.[s] ?? [])].map((style, i) => (
             <div key={i} className="crop-mark" style={style} />
           ))}
         </div>

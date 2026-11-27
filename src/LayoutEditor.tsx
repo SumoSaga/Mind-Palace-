@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useRefineId } from './bg/RefineEditor';
 import { BackgroundButtons } from './bg/removeBackground';
@@ -7,7 +7,9 @@ import { DEFAULT_FONT, FONT_GROUPS } from './fonts/fonts';
 import { PullDialog, PushDialog, RefreshDialog } from './gdocs/GoogleDocDialog';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import { ItemView } from './ItemView';
-import { PAPERS, planPrint, PrintView } from './PrintView';
+import { CardDataDialog } from './cards/CardDataDialog';
+import { cardRows, rowRecord } from './cards/table';
+import { PAPERS, planPrint, printPages, PrintView } from './PrintView';
 import { SuggestDialog } from './SuggestDialog';
 import { getTheme, THEMES } from './themes';
 import type { Theme } from './themes';
@@ -45,14 +47,95 @@ import {
 } from './store';
 import type { Item, Layout, Page, StorySource } from './store';
 
-const PRESETS: Array<{ key: string; label: string; w: number; h: number }> = [
-  { key: 'letter', label: 'Letter 8.5 × 11 in', w: 612, h: 792 },
-  { key: 'a4', label: 'A4 210 × 297 mm', w: 595.28, h: 841.89 },
-  { key: 'trade', label: 'Trade book 6 × 9 in', w: 432, h: 648 },
-  { key: 'digest', label: 'Digest 5.5 × 8.5 in', w: 396, h: 612 },
-  { key: 'poker', label: 'Poker card 2.5 × 3.5 in', w: 180, h: 252 },
-  { key: 'tarot', label: 'Tarot card 2.75 × 4.75 in', w: 198, h: 342 },
+interface Preset {
+  key: string;
+  label: string;
+  /** Trimmed page size in points. */
+  w: number;
+  h: number;
+  /** Set along with the size when the preset is chosen. */
+  bleed?: number;
+  margin?: number;
+  facing?: boolean;
+}
+
+const IN = 72;
+
+/**
+ * Page sizes, grouped. The print-service groups also set the bleed and the
+ * safe margin that service asks for.
+ *
+ * The Game Crafter: finished sizes from its product listing; 1/8 in bleed and
+ * a safe zone 1/8 in inside the cut line, from its templates and bleed help
+ * pages. DriveThruRPG: trim sizes from its "Book Formats and Sizes" page;
+ * 0.125 in bleed on the three outside edges and a 0.5 in text margin, from its
+ * "Quick Specifications for Print Books" page. Checked 27 November 2026;
+ * services change their specifications, so re-check before a print run.
+ */
+const PRESET_GROUPS: Array<{ label: string; note?: string; presets: Preset[] }> = [
+  {
+    label: 'General',
+    presets: [
+      { key: 'letter', label: 'Letter 8.5 × 11 in', w: 612, h: 792 },
+      { key: 'a4', label: 'A4 210 × 297 mm', w: 595.28, h: 841.89 },
+      { key: 'trade', label: 'Trade book 6 × 9 in', w: 432, h: 648 },
+      { key: 'digest', label: 'Digest 5.5 × 8.5 in', w: 396, h: 612 },
+    ],
+  },
+  {
+    label: 'The Game Crafter cards',
+    note: 'The Game Crafter takes each card as a 300 dpi PNG or JPG in RGB, not a PDF. Exporting card images is not built yet.',
+    presets: (
+      [
+        ['poker', 'Poker', 2.5, 3.5],
+        ['bridge', 'Bridge', 2.25, 3.5],
+        ['tarot', 'Tarot', 2.75, 4.75],
+        ['mini', 'Mini', 1.75, 2.5],
+        ['jumbo', 'Jumbo', 3.5, 5.5],
+        ['square', 'Square', 3.5, 3.5],
+        ['small-square', 'Small square', 2.5, 2.5],
+      ] as const
+    ).map(([key, name, w, h]) => ({
+      key,
+      label: `${name} card ${w} × ${h} in`,
+      w: w * IN,
+      h: h * IN,
+      bleed: 0.125 * IN,
+      margin: 0.125 * IN,
+      facing: false,
+    })),
+  },
+  {
+    label: 'DriveThruRPG books',
+    note: 'DriveThruRPG needs a PDF/X-1a or PDF/X-3 file in CMYK with no crop marks. This app saves an RGB PDF, so it needs converting before upload.',
+    presets: (
+      [
+        ['dt-5.5x8.5', 5.5, 8.5],
+        ['dt-6x9', 6, 9],
+        ['dt-7x10', 7, 10],
+        ['dt-8x10', 8, 10],
+        ['dt-8.5x8.5', 8.5, 8.5],
+        ['dt-8.5x11', 8.5, 11],
+      ] as const
+    ).map(([key, w, h]) => ({
+      key,
+      label: `Book ${w} × ${h} in`,
+      w: w * IN,
+      h: h * IN,
+      bleed: 0.125 * IN,
+      margin: 0.5 * IN,
+      facing: true,
+    })),
+  },
 ];
+
+const PRESETS = PRESET_GROUPS.flatMap((g) => g.presets);
+
+/** The preset matching a layout's size, preferring one whose bleed also matches. */
+function matchPreset(layout: Layout): Preset | undefined {
+  const sameSize = PRESETS.filter((p) => Math.abs(p.w - layout.w) < 0.5 && Math.abs(p.h - layout.h) < 0.5);
+  return sameSize.find((p) => Math.abs((p.bleed ?? 0) - (layout.bleed ?? 0)) < 0.5) ?? sameSize[0];
+}
 
 const SPREAD_GAP = 60;
 
@@ -93,6 +176,13 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   const stories = useStories();
   const [docDialog, setDocDialog] = useState<'pull' | 'refresh' | 'push' | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
+  const [previewRow, setPreviewRow] = useState(0);
+  const data = layout?.data;
+  const rowCount = data?.rows.length ?? 0;
+  const shownRow = Math.min(previewRow, Math.max(0, rowCount - 1));
+  // The data row shown in the template while designing.
+  const record = useMemo(() => (data && rowCount ? rowRecord(data, shownRow) : undefined), [data, rowCount, shownRow]);
   const theme = getTheme(layout?.theme);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
 
@@ -281,7 +371,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   }
 
   useEditingKeys({
-    active: !refining && !docDialog && !suggesting,
+    active: !refining && !docDialog && !suggesting && !dataOpen,
     onDelete: deleteSelected,
     onEscape: () => setSelected(null),
     onUndo: () => undoManager.undo(),
@@ -292,9 +382,11 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
 
   if (!layout) return null;
 
-  const preset = PRESETS.find((p) => Math.abs(p.w - layout.w) < 0.5 && Math.abs(p.h - layout.h) < 0.5);
+  const preset = matchPreset(layout);
+  const presetNote = PRESET_GROUPS.find((g) => preset && g.presets.includes(preset))?.note;
   const inches = (pt: number) => +(pt / 72).toFixed(3);
-  const plan = planPrint(layout, pages);
+  const plan = planPrint(layout, printPages(layout, pages));
+  const cardCount = data ? cardRows(data).length : 0;
   const grid = 24 * view.k;
   const surfaceStyle: CSSProperties = {
     backgroundSize: `${grid}px ${grid}px`,
@@ -316,16 +408,33 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           value={preset?.key ?? 'custom'}
           onChange={(e) => {
             const p = PRESETS.find((x) => x.key === e.target.value);
-            if (p) updateLayout(layoutId, { w: p.w, h: p.h });
+            if (!p) return;
+            updateLayout(layoutId, {
+              w: p.w,
+              h: p.h,
+              // A print-service preset also sets that service's bleed and safe margin.
+              ...(p.bleed !== undefined ? { bleed: p.bleed } : {}),
+              ...(p.margin !== undefined ? { margin: p.margin } : {}),
+              ...(p.facing !== undefined ? { facing: p.facing } : {}),
+            });
           }}
         >
-          {PRESETS.map((p) => (
-            <option key={p.key} value={p.key}>
-              {p.label}
-            </option>
+          {PRESET_GROUPS.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.presets.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+            </optgroup>
           ))}
           <option value="custom">Custom size</option>
         </select>
+        {presetNote && (
+          <span className="print-info service-note" title={presetNote}>
+            Export note
+          </span>
+        )}
         <label>
           W
           <input
@@ -524,6 +633,21 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
                 </button>
               </>
             )}
+            {sel.type === 'image' && data && (
+              <select
+                aria-label="Picture from data column"
+                title="Show a different picture on each card: choose the column that holds each card's image link"
+                value={sel.bind ?? ''}
+                onChange={(e) => updateItem(sel.id, { bind: e.target.value || undefined })}
+              >
+                <option value="">Same picture on every card</option>
+                {data.columns.map((c) => (
+                  <option key={c} value={c}>
+                    Picture from "{c}"
+                  </option>
+                ))}
+              </select>
+            )}
             <BackgroundButtons item={sel} />
             {!sel.storyId && <button onClick={() => sendToDesk(sel)}>Move to Desk</button>}
             <button onClick={deleteSelected}>Delete</button>
@@ -551,6 +675,28 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           </button>
         )}
         <span className="spacer" />
+        {data && rowCount > 0 && (
+          <span className="row-pager" title="The data row shown in the template. Printing makes every card.">
+            <button disabled={shownRow <= 0} onClick={() => setPreviewRow(shownRow - 1)} aria-label="Previous row">
+              ‹
+            </button>
+            Row {shownRow + 1} of {rowCount}
+            <button
+              disabled={shownRow >= rowCount - 1}
+              onClick={() => setPreviewRow(shownRow + 1)}
+              aria-label="Next row"
+            >
+              ›
+            </button>
+            <span className="print-info">{cardCount} cards</span>
+          </span>
+        )}
+        <button
+          onClick={() => setDataOpen(true)}
+          title="Make many cards from one template and a table of rows"
+        >
+          Card data
+        </button>
         <button
           className="on"
           onClick={() => setSuggesting(true)}
@@ -607,7 +753,20 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
                   onPointerDown={() => setCurrentPageId(page.id)}
                 >
                   <div className="margin-guide" style={{ inset: `${layout.margin}pt` }} />
-                  {!!layout.bleed && <div className="bleed-guide" style={{ inset: `${-layout.bleed}pt` }} />}
+                  {!!layout.bleed && (
+                    <div
+                      className="bleed-guide"
+                      style={{
+                        // A bound book has no bleed on the binding (inner) edge; page 1 is a right-hand page.
+                        inset:
+                          layout.facing && !layout.data
+                            ? i % 2 === 0
+                              ? `${-layout.bleed}pt ${-layout.bleed}pt ${-layout.bleed}pt 0`
+                              : `${-layout.bleed}pt 0 ${-layout.bleed}pt ${-layout.bleed}pt`
+                            : `${-layout.bleed}pt`,
+                      }}
+                    />
+                  )}
                   {items
                     .filter((it) => it.location === location)
                     .map((it) => (
@@ -621,6 +780,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
                           setCurrentPageId(page.id);
                         }}
                         toWorld={toPage}
+                        record={record}
                         onDragEnd={onDragEnd}
                         flow={flow.get(it.id)}
                         onCommitFlowText={(f, text) => replaceStoryRange(f.storyId, f.start, f.end, text)}
@@ -649,6 +809,16 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
 
       <PrintView layout={layout} pages={pages} items={items} flow={flow} />
 
+      {dataOpen && (
+        <CardDataDialog
+          layout={layout}
+          onClose={() => setDataOpen(false)}
+          onSave={(next) => {
+            updateLayout(layoutId, { data: next });
+            setPreviewRow(0);
+          }}
+        />
+      )}
       {suggesting && current && (
         <SuggestDialog
           layout={layout}

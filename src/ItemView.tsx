@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { useBgStatus } from './bg/removeBackground';
+import { fillTemplate, valueOf } from './cards/table';
 import { deviceAt, highlightDevice } from './Dock';
 import type { FlowInfo } from './flow';
 import { renderAll } from './markup';
@@ -30,11 +31,20 @@ interface Props {
   onCommitFlowText?: (flow: FlowInfo, text: string) => void;
   /** Called when the "more text" marker on an overflowing frame is clicked. */
   onOverflowClick?: (item: Item) => void;
+  /** In a card template: the data row being previewed, used to fill placeholders. */
+  record?: Record<string, string>;
+}
+
+/** The image an item shows: the row's value for its bound column if it has one, else its own. */
+export function imageSrc(item: Item, record: Record<string, string> | undefined): string | undefined {
+  const bound = record && item.bind ? valueOf(record, item.bind) : undefined;
+  return bound?.trim() ? bound.trim() : item.src;
 }
 
 /** A text item's content as HTML: its portion of a story if linked, else its own text. */
-export function itemHtml(item: Item, flow: FlowInfo | undefined): string {
-  return flow ? flow.html : renderAll(item.text ?? '');
+export function itemHtml(item: Item, flow: FlowInfo | undefined, record?: Record<string, string>): string {
+  if (flow) return flow.html;
+  return renderAll(record ? fillTemplate(item.text ?? '', record) : (item.text ?? ''));
 }
 
 const MIN_SIZE = 12;
@@ -92,6 +102,7 @@ export function ItemView({
   flow,
   onCommitFlowText,
   onOverflowClick,
+  record,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const busy = useBgStatus(item.id);
@@ -99,7 +110,10 @@ export function ItemView({
   const framed = item.type === 'embed' || item.type === 'pdf' || item.type === 'video';
   const using = framed && editing;
   const ownText = item.type === 'text' && !flow ? (item.text ?? '') : null;
-  const ownHtml = useMemo(() => (ownText === null ? '' : renderAll(ownText)), [ownText]);
+  const ownHtml = useMemo(
+    () => (ownText === null ? '' : renderAll(record ? fillTemplate(ownText, record) : ownText)),
+    [ownText, record],
+  );
   const html = flow ? flow.html : ownHtml;
   const textRef = useRef<HTMLDivElement>(null);
 
@@ -211,7 +225,9 @@ export function ItemView({
       onPointerDown={onBodyPointerDown}
       onDoubleClick={onDoubleClick}
     >
-      {item.type === 'image' && <img src={item.src} alt="" draggable={false} />}
+      {item.type === 'image' && (
+        <img src={imageSrc(item, record)} alt="" draggable={false} className={item.bind ? 'bound' : undefined} />
+      )}
       {item.type === 'text' &&
         (editing ? (
           // While editing, the source text is shown, markup and all.

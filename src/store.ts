@@ -28,6 +28,8 @@ export interface Item {
   text?: string;
   /** Image source. A data URL for now; becomes a cloud file reference later. */
   src?: string;
+  /** For an image in a card template: the data column whose value (an image link) it shows. */
+  bind?: string;
   /** The untouched image, kept when `src` holds an edited version (e.g. background removed). */
   originalSrc?: string;
   /**
@@ -72,6 +74,11 @@ export interface Layout {
   sheet?: 'letter' | 'a4';
   /** With `sheet`: odd pages are fronts and even pages their backs, on alternating sheets. */
   duplex?: boolean;
+  /**
+   * Card data: when set, the pages are a template and each row of this table
+   * makes one card. See cards/table.ts.
+   */
+  data?: { columns: string[]; rows: string[][] };
   /** The look applied to this layout; see themes.ts. */
   theme?: string;
   /** Facing pages are shown as spreads, as in a book. */

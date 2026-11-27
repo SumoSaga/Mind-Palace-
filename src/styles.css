@@ -445,6 +445,38 @@ body {
   font-weight: 600;
 }
 
+.editor-bar .service-note {
+  padding: 4px 8px;
+  color: #b8860b;
+  border: 1px dashed currentColor;
+  border-radius: 6px;
+  cursor: help;
+}
+
+.editor-bar .row-pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.item-image img.bound {
+  object-fit: contain;
+}
+
+.modal .data-input {
+  width: 100%;
+  min-height: 130px;
+  padding: 10px;
+  font: 13px/1.4 ui-monospace, Consolas, monospace;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  resize: vertical;
+  tab-size: 12;
+}
+
 .editor-bar .print-info {
   font-size: 13px;
   color: var(--muted);
