@@ -55,7 +55,13 @@ Step 3 (linked text frames), first slice:
 
 - Mixed styles inside text, written as light markup: start a line with `#`, `##` or `###` for headings, and wrap words in `**bold**` or `*italic*`. The markers are hidden except while editing. A heading is never left alone at the bottom of a frame. This applies to every text item, on the Desk as well. See `src/markup.ts`.
 
-Not built yet in step 3: formatting buttons (markup is typed by hand), separate fonts or colours for headings, paragraph spacing and indents, control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
+- Google Docs bridge (pull and refresh): "From Google Doc" in the editor loads a doc by its link, converts headings, bold and italic to markup, and places the whole doc or one top-level section on the page, optionally flowing it across pages. Text placed this way remembers its doc and section; "Refresh from doc" re-reads the doc, shows which paragraphs changed, and replaces the text only if you accept. Docs with no heading styles have their short all-bold lines treated as headings. See `src/gdocs/`.
+
+  Setup, once: create a Google Cloud project, enable the Google Docs API, set the OAuth consent screen to External/Testing with yourself as a test user, create an OAuth client ID (Web application) with `http://localhost:5173` as an authorised JavaScript origin, and put `VITE_GOOGLE_CLIENT_ID=<the id>` in a file named `.env.local`. The app only asks for read-only access to Docs, and the access token is kept in memory only.
+
+  Check the converter with `node scripts/test-gdocs.mjs`.
+
+Not built yet in step 3: pushing layout edits back to the doc, merging doc changes with layout edits (a refresh replaces the text), a live Google Doc embedded on the Desk, formatting buttons (markup is typed by hand), separate fonts or colours for headings, paragraph spacing and indents, control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
 
 `npm run dev` starts two things: the app, and a development sync server (`server/sync-server.mjs`) that relays changes between devices. The sync server keeps spaces in memory only.
 

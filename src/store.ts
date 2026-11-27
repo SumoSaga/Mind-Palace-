@@ -77,6 +77,20 @@ export interface Page {
 export interface Story {
   id: string;
   text: string;
+  /** Where the text was pulled from, if anywhere, so it can be refreshed. */
+  source?: StorySource;
+}
+
+/** A Google Doc (or one section of it) that a story's text came from. */
+export interface StorySource {
+  kind: 'gdoc';
+  docId: string;
+  docTitle: string;
+  /** The top-level heading of the section pulled, or null for the whole document. */
+  section: string | null;
+  pulledAt: number;
+  /** The text as it was when pulled, to tell doc changes from edits made in the layout. */
+  pulledText: string;
 }
 
 /** CSS pixels are 1/96 inch and points are 1/72 inch. */
@@ -231,6 +245,24 @@ export function ensureStory(item: Item): string {
     items.update(item.id, { storyId, storyIndex: 0, text: undefined });
   });
   return storyId;
+}
+
+/** Creates a story with its first frame. Returns the frame's id. */
+export function addStoryFrame(frame: NewItem, text: string, source?: StorySource): string {
+  const storyId = crypto.randomUUID();
+  let itemId = '';
+  doc.transact(() => {
+    stories.add(storyId, { text, source });
+    itemId = addItem({ ...frame, text: undefined, storyId, storyIndex: 0 });
+  });
+  return itemId;
+}
+
+/** Replaces a story's whole text with a fresh pull from its source. */
+export function refreshStory(storyId: string, text: string) {
+  const story = stories.get().find((s) => s.id === storyId);
+  if (!story?.source) return;
+  stories.update(storyId, { text, source: { ...story.source, pulledAt: Date.now(), pulledText: text } });
 }
 
 /** Replaces part of a story's text, as when one frame's portion is edited. */

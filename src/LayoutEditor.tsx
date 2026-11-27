@@ -4,6 +4,7 @@ import { useRefineId } from './bg/RefineEditor';
 import { BackgroundButtons } from './bg/removeBackground';
 import { continueOnNextPage, flowToEnd, useFlow } from './flow';
 import { DEFAULT_FONT, FONT_GROUPS } from './fonts/fonts';
+import { PullDialog, RefreshDialog } from './gdocs/GoogleDocDialog';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import { ItemView } from './ItemView';
 import { PAPERS, planPrint, PrintView } from './PrintView';
@@ -23,8 +24,11 @@ import {
   useItems,
   useLayouts,
   usePages,
+  addStoryFrame,
+  refreshStory,
+  useStories,
 } from './store';
-import type { Item, Layout, Page } from './store';
+import type { Item, Layout, Page, StorySource } from './store';
 
 const PRESETS: Array<{ key: string; label: string; w: number; h: number }> = [
   { key: 'letter', label: 'Letter 8.5 × 11 in', w: 612, h: 792 },
@@ -71,9 +75,13 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   const fitted = useRef(false);
   const refining = !!useRefineId();
   const flow = useFlow(items);
+  const stories = useStories();
+  const [docDialog, setDocDialog] = useState<'pull' | 'refresh' | null>(null);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
 
   const placed = layout ? placePages(pages, layout) : [];
+  const selItem = items.find((it) => it.id === selected);
+  const selStory = selItem?.storyId ? stories.find((s) => s.id === selItem.storyId) : undefined;
   const current = placed.find((p) => p.page.id === currentPageId) ?? placed[0];
   const sel = items.find((it) => it.id === selected);
   const deskItems = items.filter((it) => it.location === 'desk' && it.type !== 'layout');
@@ -95,6 +103,28 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
     const k = Math.max(0.1, Math.min(2, (r.width - tray - 80) / spreadW, (r.height - 80) / ph));
     setView({ k, x: (r.width - tray - spreadW * k) / 2, y: 40 });
   }, [layout, rootRef, setView]);
+
+  /** Places text pulled from a Google Doc in a frame filling the current page's margins. */
+  function placeFromDoc(text: string, source: StorySource, flowAcrossPages: boolean) {
+    if (!layout || !current) return;
+    const id = addStoryFrame(
+      {
+        type: 'text',
+        location: pageLocation(current.page.id),
+        x: layout.margin,
+        y: layout.margin,
+        w: layout.w - layout.margin * 2,
+        h: layout.h - layout.margin * 2,
+        fontFamily: DEFAULT_FONT,
+        fontSize: 11,
+      },
+      text,
+      source,
+    );
+    setSelected(id);
+    const frame = getItems().find((it) => it.id === id);
+    if (frame && flowAcrossPages) flowToEnd(frame);
+  }
 
   /** Style changes on a linked frame apply to every frame of its story. */
   function styleText(item: Item, patch: Partial<Item>) {
@@ -204,7 +234,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   }
 
   useEditingKeys({
-    active: !refining,
+    active: !refining && !docDialog,
     onDelete: deleteSelected,
     onEscape: () => setSelected(null),
     onUndo: () => undoManager.undo(),
@@ -442,7 +472,18 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
             <button onClick={deleteSelected}>Delete</button>
           </>
         )}
+        {selStory?.source && (
+          <button
+            onClick={() => setDocDialog('refresh')}
+            title={`This text came from the Google Doc "${selStory.source.docTitle}". Check it for changes.`}
+          >
+            Refresh from doc
+          </button>
+        )}
         <span className="spacer" />
+        <button onClick={() => setDocDialog('pull')} title="Place text from a Google Doc on the current page">
+          From Google Doc
+        </button>
         <button onClick={() => setTrayOpen((o) => !o)}>From the Desk ({deskItems.length})</button>
         <span className="zoom">{Math.round(view.k * 100)}%</span>
         <input
@@ -524,6 +565,15 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
       </div>
 
       <PrintView layout={layout} pages={pages} items={items} flow={flow} />
+
+      {docDialog === 'pull' && <PullDialog onClose={() => setDocDialog(null)} onPlace={placeFromDoc} />}
+      {docDialog === 'refresh' && selStory?.source && (
+        <RefreshDialog
+          story={selStory}
+          onClose={() => setDocDialog(null)}
+          onAccept={(text) => refreshStory(selStory.id, text)}
+        />
+      )}
     </div>
   );
 }
