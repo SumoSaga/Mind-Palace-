@@ -45,6 +45,9 @@ export interface Item {
   align?: 'left' | 'center' | 'right' | 'justify';
   bold?: boolean;
   italic?: boolean;
+  /** Font and colour for headings inside the text; body font and colour when unset. */
+  headingFont?: string;
+  headingColor?: string;
 }
 
 /** A layout document: a book, sheet or component with fixed-size pages. */
@@ -63,6 +66,8 @@ export interface Layout {
   sheet?: 'letter' | 'a4';
   /** With `sheet`: odd pages are fronts and even pages their backs, on alternating sheets. */
   duplex?: boolean;
+  /** The look applied to this layout; see themes.ts. */
+  theme?: string;
   /** Facing pages are shown as spreads, as in a book. */
   facing: boolean;
 }

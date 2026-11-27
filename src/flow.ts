@@ -61,6 +61,9 @@ function probeFor(frame: Item): HTMLDivElement {
   probe.style.fontSize = `${frame.fontSize ?? 11}pt`;
   probe.style.fontWeight = frame.bold ? '700' : '400';
   probe.style.fontStyle = frame.italic ? 'italic' : 'normal';
+  // Headings may use their own font, which changes how much room they take.
+  if (frame.headingFont) probe.style.setProperty('--heading-font', `"${frame.headingFont}"`);
+  else probe.style.removeProperty('--heading-font');
   return probe;
 }
 
@@ -192,7 +195,7 @@ if (typeof document !== 'undefined' && document.fonts) {
 
 function cachedLayout(storyId: string, text: string, frames: Item[]): StoryLayout {
   const shape = frames
-    .map((f) => [f.w, f.h, f.fontFamily, f.fontSize, f.bold, f.italic, f.align].join(','))
+    .map((f) => [f.w, f.h, f.fontFamily, f.fontSize, f.bold, f.italic, f.align, f.headingFont].join(','))
     .join('|');
   const key = `${fontsVersion}\u0000${shape}\u0000${text}`;
   const hit = cache.get(storyId);
@@ -252,23 +255,34 @@ export function continueOnNextPage(frame: Item): string | null {
   const all = getPages();
   const page = all.find((p) => p.id === pageId);
   if (!page) return null;
-  const storyId = ensureStory(frame);
   const layoutPages = all.filter((p) => p.layoutId === page.layoutId);
   const nextPage = layoutPages[layoutPages.findIndex((p) => p.id === pageId) + 1];
   const nextPageId = nextPage ? nextPage.id : addPage(page.layoutId);
 
+  return addLinkedFrame(frame, pageLocation(nextPageId), { x: frame.x, y: frame.y, w: frame.w, h: frame.h });
+}
+
+/**
+ * Adds a frame linked directly after `frame` in its story (starting a story if
+ * the frame is standalone), with the same text styling. Returns its id.
+ */
+export function addLinkedFrame(
+  frame: Item,
+  location: string,
+  box: { x: number; y: number; w: number; h: number },
+): string {
+  const storyId = ensureStory(frame);
   const frames = storyFrames(storyId);
   const i = frames.findIndex((f) => f.id === frame.id);
   const index = frames[i]?.storyIndex ?? 0;
   const following = frames[i + 1]?.storyIndex;
   return addItem({
     type: 'text',
-    location: pageLocation(nextPageId),
-    x: frame.x,
-    y: frame.y,
-    w: frame.w,
-    h: frame.h,
+    location,
+    ...box,
     rot: frame.rot,
+    headingFont: frame.headingFont,
+    headingColor: frame.headingColor,
     storyId,
     storyIndex: following === undefined ? index + 1 : (index + following) / 2,
     fontFamily: frame.fontFamily,

@@ -63,6 +63,13 @@ Step 3 (linked text frames), first slice:
 
 Not built yet in step 3: pushing layout edits back to the doc, merging doc changes with layout edits (a refresh replaces the text), a live Google Doc embedded on the Desk, formatting buttons (markup is typed by hand), separate fonts or colours for headings, paragraph spacing and indents, control of stranded lines at the top or bottom of a frame, columns, and the Google Docs bridge.
 
+Step 4 (layout suggestions and themes), first slice:
+
+- Themes: "Plain", "High fantasy" and "Modern day". A theme sets the body font, a separate heading font and colour, ink colour, body size and paper colour, restyles all the text in the layout, and becomes the default for new frames. Paper colour prints. See `src/themes.ts`.
+- "Suggest layouts" shows arrangements for the current page as thumbnails, built from a library of page patterns (art on top, edge to edge, at left or right, below, with one or two text columns). Picking one moves the page's frames; two-column patterns add a linked frame. See `src/suggest.ts`.
+
+Not built yet in step 4: an AI model choosing and ranking the patterns (they are offered in a fixed order), ornaments and textures in themes, cropping images to fill a shape, suggestions across several pages at once.
+
 `npm run dev` starts two things: the app, and a development sync server (`server/sync-server.mjs`) that relays changes between devices. The sync server keeps spaces in memory only.
 
 Not built yet: sign-in, cloud storage, hosting outside the local network.

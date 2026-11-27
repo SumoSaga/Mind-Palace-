@@ -4,6 +4,7 @@ import type { FlowInfo } from './flow';
 import { boxStyle, itemHtml, textStyle } from './ItemView';
 import { pageLocation } from './store';
 import type { Item, Layout, Page } from './store';
+import { getTheme } from './themes';
 
 /** Paper sizes for tiling several small pages (cards) onto one sheet, in points. */
 export const PAPERS = {
@@ -172,6 +173,7 @@ export function PrintView({
 }) {
   const bleed = layout.bleed ?? 0;
   const plan = planPrint(layout, pages);
+  const paper = getTheme(layout.theme).paper;
 
   return createPortal(
     <div className="print-root">
@@ -190,6 +192,7 @@ export function PrintView({
                   top: pt(y - bleed),
                   width: pt(layout.w + bleed * 2),
                   height: pt(layout.h + bleed * 2),
+                  background: paper,
                 }}
               >
                 <div className="print-trim" style={{ left: pt(bleed), top: pt(bleed) }}>

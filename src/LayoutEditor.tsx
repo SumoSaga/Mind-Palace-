@@ -8,6 +8,20 @@ import { PullDialog, RefreshDialog } from './gdocs/GoogleDocDialog';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import { ItemView } from './ItemView';
 import { PAPERS, planPrint, PrintView } from './PrintView';
+import { SuggestDialog } from './SuggestDialog';
+import { getTheme, THEMES } from './themes';
+import type { Theme } from './themes';
+
+/** The text settings a theme gives a frame. */
+function themeText(theme: Theme) {
+  return {
+    fontFamily: theme.bodyFont,
+    fontSize: theme.bodySize,
+    color: theme.ink,
+    headingFont: theme.headingFont,
+    headingColor: theme.headingColor,
+  };
+}
 import {
   addItem,
   addPage,
@@ -77,6 +91,8 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   const flow = useFlow(items);
   const stories = useStories();
   const [docDialog, setDocDialog] = useState<'pull' | 'refresh' | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const theme = getTheme(layout?.theme);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
 
   const placed = layout ? placePages(pages, layout) : [];
@@ -91,18 +107,50 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
     if (!layout) onClose();
   }, [layout, onClose]);
 
-  // Start with the first spread fitted to the screen.
+  // Start with the first spread fitted to the screen, and keep it fitted if the
+  // window changes size, until the user pans or zooms for themselves.
+  const fitSize = layout ? `${layout.w},${layout.h},${layout.facing}` : '';
+  const fitSizeRef = useRef(fitSize);
+  fitSizeRef.current = fitSize;
   useEffect(() => {
-    if (fitted.current || !layout || !rootRef.current) return;
-    fitted.current = true;
-    const r = rootRef.current.getBoundingClientRect();
-    const pw = layout.w / PT_PER_PX;
-    const ph = layout.h / PT_PER_PX;
-    const spreadW = layout.facing ? pw * 2 : pw;
-    const tray = r.width > 700 ? 210 : 0; // leave room for the "From the Desk" panel
-    const k = Math.max(0.1, Math.min(2, (r.width - tray - 80) / spreadW, (r.height - 80) / ph));
-    setView({ k, x: (r.width - tray - spreadW * k) / 2, y: 40 });
-  }, [layout, rootRef, setView]);
+    const root = rootRef.current;
+    if (!root || !fitSize) return;
+    const fit = () => {
+      if (fitted.current) return;
+      const [w, h, facing] = fitSizeRef.current.split(',');
+      const r = root.getBoundingClientRect();
+      if (r.width < 50 || r.height < 50) return;
+      const pw = +w / PT_PER_PX;
+      const ph = +h / PT_PER_PX;
+      const spreadW = facing === 'true' ? pw * 2 : pw;
+      const tray = r.width > 700 ? 210 : 0; // leave room for the "From the Desk" panel
+      const k = Math.max(0.1, Math.min(2, (r.width - tray - 80) / spreadW, (r.height - 80) / ph));
+      setView({ k, x: (r.width - tray - spreadW * k) / 2, y: 40 });
+    };
+    const stop = () => {
+      fitted.current = true;
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(root);
+    root.addEventListener('pointerdown', stop, true);
+    root.addEventListener('wheel', stop, true);
+    return () => {
+      observer.disconnect();
+      root.removeEventListener('pointerdown', stop, true);
+      root.removeEventListener('wheel', stop, true);
+    };
+  }, [fitSize, rootRef, setView]);
+
+  /** Restyles all of this layout's text to a theme, and makes it the default for new frames. */
+  function applyTheme(id: string) {
+    const next = getTheme(id);
+    updateLayout(layoutId, { theme: next.id });
+    const locations = new Set(pages.map((p) => pageLocation(p.id)));
+    for (const it of items) {
+      if (it.type === 'text' && locations.has(it.location)) updateItem(it.id, themeText(next));
+    }
+  }
 
   /** Places text pulled from a Google Doc in a frame filling the current page's margins. */
   function placeFromDoc(text: string, source: StorySource, flowAcrossPages: boolean) {
@@ -115,8 +163,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
         y: layout.margin,
         w: layout.w - layout.margin * 2,
         h: layout.h - layout.margin * 2,
-        fontFamily: DEFAULT_FONT,
-        fontSize: 11,
+        ...themeText(theme),
       },
       text,
       source,
@@ -158,8 +205,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
         // Long pasted text gets a frame filling the margins, ready to flow on.
         h: text.length > 300 ? layout.h - layout.margin * 2 : 72,
         text,
-        fontFamily: DEFAULT_FONT,
-        fontSize: 11,
+        ...themeText(theme),
       }),
     );
   }
@@ -234,7 +280,7 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   }
 
   useEditingKeys({
-    active: !refining && !docDialog,
+    active: !refining && !docDialog && !suggesting,
     onDelete: deleteSelected,
     onEscape: () => setSelected(null),
     onUndo: () => undoManager.undo(),
@@ -337,6 +383,16 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
             onChange={(e) => updateLayout(layoutId, { facing: e.target.checked })}
           />
           Facing pages
+        </label>
+        <label title="A coordinated look: fonts, colours and paper. Restyles all the text in this layout.">
+          Theme
+          <select value={theme.id} onChange={(e) => applyTheme(e.target.value)}>
+            {THEMES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
         </label>
         <span className="spacer" />
         <select
@@ -481,6 +537,13 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           </button>
         )}
         <span className="spacer" />
+        <button
+          className="on"
+          onClick={() => setSuggesting(true)}
+          title="See arrangements for what is on the current page"
+        >
+          Suggest layouts
+        </button>
         <button onClick={() => setDocDialog('pull')} title="Place text from a Google Doc on the current page">
           From Google Doc
         </button>
@@ -520,7 +583,13 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
                   key={page.id}
                   data-pan
                   className={`page${current?.page.id === page.id ? ' current' : ''}`}
-                  style={{ left: x, top: y, width: `${layout.w}pt`, height: `${layout.h}pt` }}
+                  style={{
+                    left: x,
+                    top: y,
+                    width: `${layout.w}pt`,
+                    height: `${layout.h}pt`,
+                    background: theme.paper,
+                  }}
                   onPointerDown={() => setCurrentPageId(page.id)}
                 >
                   <div className="margin-guide" style={{ inset: `${layout.margin}pt` }} />
@@ -566,6 +635,13 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
 
       <PrintView layout={layout} pages={pages} items={items} flow={flow} />
 
+      {suggesting && current && (
+        <SuggestDialog
+          layout={layout}
+          pageItems={items.filter((it) => it.location === pageLocation(current.page.id))}
+          onClose={() => setSuggesting(false)}
+        />
+      )}
       {docDialog === 'pull' && <PullDialog onClose={() => setDocDialog(null)} onPlace={placeFromDoc} />}
       {docDialog === 'refresh' && selStory?.source && (
         <RefreshDialog

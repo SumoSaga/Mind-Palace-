@@ -65,13 +65,17 @@ export function boxStyle(item: Item, unit: Unit): CSSProperties {
 
 export function textStyle(item: Item, unit: Unit): CSSProperties {
   return {
-    fontFamily: item.fontFamily,
+    // Quoted, because a name such as "Source Serif 4" is not valid CSS unquoted.
+    fontFamily: item.fontFamily ? `"${item.fontFamily}"` : undefined,
     fontSize: item.fontSize ? `${item.fontSize}${unit}` : undefined,
     // Pages are paper: text defaults to dark ink whatever the app theme is.
     color: item.color ?? (unit === 'pt' ? '#1a1a1a' : undefined),
     textAlign: item.align,
     fontWeight: item.bold ? 700 : undefined,
     fontStyle: item.italic ? 'italic' : undefined,
+    // Read by the heading rules in styles.css.
+    ...(item.headingFont ? { ['--heading-font' as string]: `"${item.headingFont}"` } : {}),
+    ...(item.headingColor ? { ['--heading-color' as string]: item.headingColor } : {}),
   };
 }
 

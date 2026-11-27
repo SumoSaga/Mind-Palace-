@@ -116,6 +116,8 @@ body {
 .tl.h1,
 .tl.h2,
 .tl.h3 {
+  font-family: var(--heading-font, inherit);
+  color: var(--heading-color, inherit);
   font-weight: 700;
   line-height: 1.2;
 }
@@ -558,6 +560,49 @@ body {
 .modal .changes {
   font-size: 13px;
   color: var(--muted);
+}
+
+.modal.wide {
+  width: min(820px, 100%);
+}
+
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.modal button.suggestion {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.modal button.suggestion:hover {
+  border-color: var(--accent);
+}
+
+.thumb {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.thumb img,
+.thumb-text {
+  position: absolute;
+}
+
+.thumb-text {
+  /* Stripes stand in for lines of text. */
+  background: repeating-linear-gradient(to bottom, #8c8579 0 1.5px, transparent 1.5px 5px);
+  opacity: 0.75;
 }
 
 .modal-actions {
