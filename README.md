@@ -90,7 +90,7 @@ Files on the Desk:
 
 The three views:
 
-- Overview (the default on computers, and the "Overview" button in the dock): one panel per device listing what is on it, plus a "Not on a device" panel. Things can be added here, moved between devices by dragging a row or with "Move to", opened, and deleted. See `src/Overview.tsx`.
+- Overview (the default on computers, and the "Overview" button in the dock): one panel per device showing a thumbnail of each thing on it, plus a "Not on a device" panel. A thumbnail can be picked up and dropped on another device to move it there: with a mouse it lifts as soon as it is dragged; with a finger it lifts after a short hold, so a swipe still scrolls. Each thumbnail also has a "Move" menu, and things can be added, opened and deleted here. Thumbnails show the image itself, a video's first frame, a PDF's first page, a YouTube video's still picture, the opening of a text, or a page-shaped tile for a layout. See `src/Overview.tsx`.
 - My Stage: this device's own surface. It has the same Add buttons, so things can be added straight onto a device.
 - Canvas ("Open canvas" on the "Not on a device" panel): the free-form shared canvas for things not on any device. This was previously the main Desk view.
 

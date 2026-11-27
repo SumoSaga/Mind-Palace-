@@ -5,6 +5,38 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
+/** A small picture of a PDF's first page, for the Overview. */
+export function PdfThumb({ url }: { url: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let render: RenderTask | null = null;
+    const task = pdfjs.getDocument({ url });
+    task.promise
+      .then((doc) => doc.getPage(1))
+      .then((page) => {
+        const canvas = canvasRef.current;
+        if (cancelled || !canvas) return;
+        const base = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: 320 / base.width });
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        render = page.render({ canvas, viewport });
+        return render.promise;
+      })
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+      render?.cancel();
+      void task.destroy();
+    };
+  }, [url]);
+
+  return failed ? <span>PDF</span> : <canvas ref={canvasRef} className="thumb-pdf" />;
+}
+
 /**
  * Shows one page of a PDF at a time, fitted to the width available, with
  * previous and next controls. Used on the Desk and, larger, on a Stage. The
