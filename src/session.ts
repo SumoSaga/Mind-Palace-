@@ -8,9 +8,30 @@ export interface Session {
   /** The Google OAuth client ID the server is set up with, if any. */
   clientId: string;
   user: { email: string; name: string } | null;
+  /**
+   * Set when devices connect by pairing (the home setup, without Google
+   * sign-in): whether this device is allowed in yet.
+   */
+  pairing?: { paired: boolean } | null;
 }
 
 let current: Session = { required: false, clientId: '', user: null };
+
+/** Hands in a pairing code for this device. Returns an error message, or null on success. */
+export async function pairDevice(code: string): Promise<string | null> {
+  try {
+    const response = await fetch('/pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (response.ok) return null;
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    return body.error ?? 'That code did not work.';
+  } catch {
+    return 'Could not reach Mind Palace. Check this device is on the same Wi-Fi.';
+  }
+}
 
 export async function loadSession(): Promise<Session> {
   try {

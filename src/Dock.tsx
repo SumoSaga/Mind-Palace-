@@ -1,4 +1,7 @@
 import type { Mode } from './App';
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ConnectDialog } from './ConnectDialog';
 import { getSession, signOut } from './session';
 import { isPageLocation, updateItem, useItems } from './store';
 import { renameThisDevice, thisDevice, useConnected, useDevices, useKnownDevices } from './sync';
@@ -34,6 +37,9 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
   const known = useKnownDevices();
   const items = useItems();
   const user = getSession().user;
+  // Pairing is how devices connect when there is no Google sign-in.
+  const canPair = !!getSession().pairing?.paired;
+  const [connecting, setConnecting] = useState(false);
 
   const counts = new Map<string, number>();
   for (const it of items) {
@@ -94,6 +100,14 @@ export function Dock({ mode, setMode, selected, onSent }: Props) {
           </button>
         );
       })}
+
+      {canPair && (
+        <button className="device connect-button" onClick={() => setConnecting(true)} title="Bring in a phone, tablet or another computer with a QR code or a 6-digit code">
+          + Connect a device
+        </button>
+      )}
+      {/* Rendered at the top of the page: the dock is a small strip, and the dialog must cover the screen. */}
+      {connecting && createPortal(<ConnectDialog onClose={() => setConnecting(false)} />, document.body)}
 
       {user && (
         <button className="device" onClick={() => void signOut()} title={`Signed in as ${user.email}`}>

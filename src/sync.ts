@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { WebsocketProvider } from 'y-websocket';
+import { newId } from './id';
 import { doc, persistence, SPACE_ID } from './store';
 
 /**
@@ -35,7 +36,7 @@ function loadDevice(): Device {
     /* storage unavailable: fall through to a temporary identity */
   }
   const kind = guessKind();
-  const device: Device = { id: crypto.randomUUID(), name: KIND_LABEL[kind], kind };
+  const device: Device = { id: newId(), name: KIND_LABEL[kind], kind };
   saveDevice(device);
   return device;
 }

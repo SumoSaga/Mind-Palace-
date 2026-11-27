@@ -668,10 +668,102 @@ body {
   color: #e5484d;
 }
 
+.sign-in-card .code-input {
+  width: 100%;
+  padding: 12px;
+  font: 600 28px/1 ui-monospace, Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-align: center;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.sign-in-card button {
+  width: 100%;
+  padding: 12px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--surface);
+  background: var(--accent);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.sign-in-card button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- connect a device --- */
+
+.device.connect-button {
+  border-style: dashed;
+  color: var(--accent);
+}
+
+.connect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  width: 100%;
+}
+
+.connect-qr {
+  flex: none;
+  width: 220px;
+  height: 220px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border-radius: 10px;
+  color: #555;
+  font-size: 13px;
+}
+
+.connect-qr img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+}
+
+.connect-steps {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.connect-address {
+  padding: 8px 10px;
+  font: 600 17px/1.2 ui-monospace, Consolas, monospace;
+  overflow-wrap: anywhere;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  user-select: all;
+}
+
+.connect-code {
+  font: 700 40px/1 ui-monospace, Consolas, monospace;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  user-select: all;
+}
+
+.modal .connect-note {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 /* --- dialogs --- */
 
 .modal-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 80;
   display: grid;

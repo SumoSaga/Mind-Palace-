@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
+import { newId } from './id';
 
 /**
  * The workspace state lives in a Yjs document so that it can be synced
@@ -182,7 +183,7 @@ function topZ(): number {
 type NewItem = Omit<Item, 'id' | 'z' | 'location' | 'rot'> & Partial<Pick<Item, 'location' | 'rot'>>;
 
 export function addItem(item: NewItem): string {
-  const id = crypto.randomUUID();
+  const id = newId();
   items.add(id, { rot: 0, location: 'desk', z: topZ() + 1, ...item });
   return id;
 }
@@ -214,18 +215,18 @@ export const usePages = pages.use;
 
 /** Creates a layout with one page and a card for it on the Desk. */
 export function addLayout(at: { x: number; y: number }): { itemId: string; layoutId: string } {
-  const layoutId = crypto.randomUUID();
+  const layoutId = newId();
   let itemId = '';
   doc.transact(() => {
     layouts.add(layoutId, { name: 'Untitled layout', w: 612, h: 792, margin: 36, facing: true });
-    pages.add(crypto.randomUUID(), { layoutId, order: 1 });
+    pages.add(newId(), { layoutId, order: 1 });
     itemId = addItem({ type: 'layout', layoutId, x: at.x - 100, y: at.y - 130, w: 200, h: 260 });
   });
   return { itemId, layoutId };
 }
 
 export function addPage(layoutId: string): string {
-  const id = crypto.randomUUID();
+  const id = newId();
   const last = pages.get().reduce((max, p) => (p.layoutId === layoutId ? Math.max(max, p.order) : max), 0);
   pages.add(id, { layoutId, order: last + 1 });
   return id;
@@ -257,7 +258,7 @@ export function storyFrames(storyId: string, list: Item[] = items.get()): Item[]
 /** Turns a standalone text frame into the first frame of a story, if it is not one already. */
 export function ensureStory(item: Item): string {
   if (item.storyId) return item.storyId;
-  const storyId = crypto.randomUUID();
+  const storyId = newId();
   doc.transact(() => {
     stories.add(storyId, { text: item.text ?? '' });
     items.update(item.id, { storyId, storyIndex: 0, text: undefined });
@@ -267,7 +268,7 @@ export function ensureStory(item: Item): string {
 
 /** Creates a story with its first frame. Returns the frame's id. */
 export function addStoryFrame(frame: NewItem, text: string, source?: StorySource): string {
-  const storyId = crypto.randomUUID();
+  const storyId = newId();
   let itemId = '';
   doc.transact(() => {
     stories.add(storyId, { text, source });

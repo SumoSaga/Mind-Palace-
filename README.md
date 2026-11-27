@@ -88,6 +88,16 @@ Files on the Desk:
 - Like links, PDFs and videos move, resize and go to Stages; double-click to use them, click away to move them.
 - PDFs and videos are not stored inside the synced workspace. They are uploaded to a file store on the sync server (`server/files.mjs`, kept in `data/files/`, which Git ignores), and items point at them. Only PDF, MP4, WebM and common image types are accepted. Deleting an item does not yet delete its file.
 
+Connecting devices (the home setup, without Google sign-in):
+
+- The computer running Mind Palace is always let in. Every other device must be connected once.
+- "Connect a device" in the dock shows a QR code, the address to open, and a 6-digit code. A phone or tablet scans the QR code and is connected straight away; any other device opens the address and types the code.
+- A connected device is remembered (a signed cookie, kept for a year), and can itself show the code to bring in another.
+- Codes last ten minutes, can be used by several devices in that time, and are replaced after ten wrong guesses. Guessing is limited to eight tries a minute per device.
+- Until connected, a device gets the code screen and nothing else: no workspace and no files.
+- The key that signs device cookies is `data/pairing.key`. Deleting it disconnects every device; there is no way yet to disconnect just one.
+- See `server/pairing.mjs`; check it with `node scripts/test-pairing.mjs`.
+
 `npm run dev` starts two things: Vite, which serves the app, and the Mind Palace server (`server/sync-server.mjs`), which relays changes between devices, saves workspaces, holds the file store and handles sign-in. Workspaces are saved to `data/spaces/` and uploaded files to `data/files/`; back up the `data` folder to back up everything.
 
 ## Hosting it

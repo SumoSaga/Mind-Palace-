@@ -62,7 +62,7 @@ try {
   assert.doesNotMatch(await outside.text(), /"mind-palace"/, 'files outside the app folder are not served');
 
   // Signed out.
-  assert.deepEqual(await (await fetch(`${base}/auth/me`)).json(), { required: true, clientId: 'e2e-client', user: null });
+  assert.deepEqual(await (await fetch(`${base}/auth/me`)).json(), { required: true, clientId: 'e2e-client', user: null, pairing: null });
   assert.equal((await fetch(`${base}/files/00000000-0000-0000-0000-000000000000`)).status, 401);
   assert.equal((await fetch(`${base}/files`, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: 'x' })).status, 401);
   assert.equal(await connect({}), 401);
