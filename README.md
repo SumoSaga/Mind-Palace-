@@ -112,6 +112,18 @@ With sign-in on, the workspace connection and every file require a signed-in, al
 
 The `Dockerfile` builds an image that runs this (port 8080, data in `/app/data`). It has not been built or run yet.
 
+### On Fly.io
+
+`fly.toml` is set up for one small machine with a 1 GB volume at `/app/data`, HTTPS, and stopping when idle. In outline:
+
+1. Install the Fly command-line tool and sign in (`fly auth login`).
+2. `fly launch --no-deploy` in the project folder, keeping the existing configuration; choose an app name and region.
+3. Set the three secrets with `fly secrets set --stage`: `ALLOWED_EMAILS`, `GOOGLE_CLIENT_ID`, `SESSION_SECRET`.
+4. Add `https://<app-name>.fly.dev` to the Google OAuth client's authorised JavaScript origins.
+5. `fly deploy`.
+
+Run it as one machine only. The hosted workspace starts empty; an existing local workspace is carried over by copying `data/spaces/default.bin` (and `data/files/`) onto the volume.
+
 Check the server with `node scripts/test-server.mjs` and, after a build, `node scripts/test-server-e2e.mjs`.
 
 Not built yet: Viewer and Editor roles (everyone allowed in can edit), more than one space, inviting people from inside the app, and moving images out of the workspace into the file store.

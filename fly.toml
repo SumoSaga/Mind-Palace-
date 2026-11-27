@@ -1,0 +1,42 @@
+# Fly.io configuration for Mind Palace.
+#
+# `fly launch --no-deploy` reads this file, asks for an app name and region,
+# and fills in `app` and `primary_region` below. See "Hosting it" in README.md.
+#
+# Mind Palace must run as exactly ONE machine: the live workspace is held in
+# that machine's memory and its data on that machine's volume. Do not scale it
+# to two machines.
+
+app = "mind-palace"
+
+# Give the server time to save workspaces before a stop or redeploy.
+kill_signal = "SIGINT"
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DATA_DIR = "/app/data"
+
+# Saved workspaces and uploaded files. Everything that must survive a restart.
+[mounts]
+  source = "mind_palace_data"
+  destination = "/app/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # The machine stops when nobody is connected and starts again on the next
+  # visit, which keeps the cost down. The first load after a quiet spell takes
+  # a few seconds. Set auto_stop_machines to "off" to keep it always running.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"
