@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { AddBar } from './AddBar';
+import { AddBar, onEmptySurface } from './AddBar';
+import type { AddMenuRequest } from './AddBar';
 import { usePanZoom } from './hooks';
 import { ItemMenu } from './ItemMenu';
 import type { MenuOption } from './ItemMenu';
@@ -16,6 +17,7 @@ function label(item: Item): string {
   if (item.type === 'embed' || item.type === 'link') return item.label ?? 'Link';
   if (item.type === 'pdf' || item.type === 'video') return item.label ?? (item.type === 'pdf' ? 'PDF' : 'Video');
   if (item.type === 'model') return item.label ?? '3D model';
+  if (item.type === 'folder') return item.label ?? 'Folder';
   const text = (item.text ?? '').trim().replace(/\s+/g, ' ');
   return text ? (text.length > 28 ? `${text.slice(0, 28)}…` : text) : 'Text';
 }
@@ -90,6 +92,7 @@ export function Stage({
   const [selected, setSelected] = useState<string | null>(null);
   const [fullId, setFullId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [addAt, setAddAt] = useState<AddMenuRequest | null>(null);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
   const full = items.find((it) => it.id === fullId);
   // A video or live page goes full screen by growing in place, not by being
@@ -178,7 +181,18 @@ export function Stage({
 
   return (
     <div className="stage">
-      <div ref={rootRef} className="desk" style={surfaceStyle} {...handlers}>
+      <div
+        ref={rootRef}
+        className="desk"
+        style={surfaceStyle}
+        {...handlers}
+        onContextMenu={(e) => {
+          // Right-click on empty space: the add menu, placing things where it was clicked.
+          if (!onEmptySurface(e.target)) return;
+          e.preventDefault();
+          setAddAt({ x: e.clientX, y: e.clientY, at: toWorld(e.clientX, e.clientY) });
+        }}
+      >
         <div
           className="world"
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, ['--inv' as string]: 1 / view.k }}
@@ -233,20 +247,22 @@ export function Stage({
           }}
           onAdded={setSelected}
           onOpenLayout={onOpenLayout}
+          request={addAt}
+          onRequestDone={() => setAddAt(null)}
         />
         <button disabled={!items.length} onClick={fitAll} title="Show everything on this Stage">
-          Fit all
+          Fit
         </button>
         <button onClick={() => setView({ x: 0, y: 0, k: 1 })} title="Reset view">
           {Math.round(view.k * 100)}%
         </button>
-        <button onClick={onOpenOverview}>Overview</button>
+        <button onClick={onOpenOverview} title="Every device and what is on it">Overview</button>
       </div>
 
       {items.length === 0 && (
         <div className="stage-empty">
           <p>Nothing is on this device yet.</p>
-          <p>Add something with the buttons above, or send it here from the Overview or another device.</p>
+          <p>Use + Add above or right-click anywhere, or send something here from the Overview or another device.</p>
         </div>
       )}
 

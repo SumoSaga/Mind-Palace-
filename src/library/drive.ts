@@ -14,12 +14,19 @@ const FIELDS = 'nextPageToken,files(id,name,mimeType,thumbnailLink,iconLink,webV
 /** Above this, a file is linked to instead of copied in: it would be slow and heavy to download in a browser. */
 const MAX_COPY_BYTES = 300 * 1024 * 1024;
 
-async function driveError(response: Response): Promise<Error> {
+export async function driveError(response: Response): Promise<Error> {
   if (response.status === 401) forgetDriveToken();
   const detail = await response
     .json()
     .then((j: { error?: { message?: string } }) => j.error?.message)
     .catch(() => undefined);
+  // The commonest first-time problem: the Drive API is switched off for the Cloud project.
+  const project = detail && /project[= ](\d+)/.exec(detail)?.[1];
+  if (response.status === 403 && detail && /has not been used|is disabled|SERVICE_DISABLED/i.test(detail)) {
+    return new Error(
+      `The Google Drive API is switched off for your Google Cloud project. Turn it on here (it is free): https://console.cloud.google.com/apis/library/drive.googleapis.com${project ? `?project=${project}` : ''} then wait a minute and try again.`,
+    );
+  }
   const reason =
     response.status === 403
       ? 'Google refused access. The Google Drive API may not be enabled for your Google Cloud project yet.'
@@ -51,7 +58,7 @@ export async function listDrive(
   return (await response.json()) as { files: DriveFile[]; nextPageToken?: string };
 }
 
-async function download(file: DriveFile): Promise<Blob> {
+export async function download(file: DriveFile): Promise<Blob> {
   const token = await getDriveToken();
   const response = await fetch(`${API}/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -60,7 +67,7 @@ async function download(file: DriveFile): Promise<Blob> {
   return response.blob();
 }
 
-function imageSize(blob: Blob): Promise<{ w: number; h: number }> {
+export function imageSize(blob: Blob): Promise<{ w: number; h: number }> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
     const img = new Image();
@@ -111,4 +118,47 @@ export async function addFromDrive(file: DriveFile, location: string, at: { x: n
   const size = kind === 'pdf' ? [420, 600] : kind === 'model' ? [480, 420] : [560, 360];
   // Google's own document types were handled above, so this is a PDF, video or 3D model.
   return addItem({ type: kind as 'pdf' | 'video' | 'model', url, label: file.name, ...place(size[0], size[1]) });
+}
+
+/** Renders one page of a PDF to a PNG picture. */
+async function pdfPagePicture(blob: Blob, pageNumber = 1): Promise<Blob> {
+  const pdfjs = await import('pdfjs-dist');
+  const { default: workerUrl } = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  const task = pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) });
+  const doc = await task.promise;
+  try {
+    const page = await doc.getPage(Math.min(pageNumber, doc.numPages));
+    // About 200 dots per inch: sharp enough to print.
+    const viewport = page.getViewport({ scale: 200 / 72 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    await page.render({ canvas, viewport }).promise;
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('The page could not be drawn.'))), 'image/png'),
+    );
+  } finally {
+    void task.destroy();
+  }
+}
+
+/**
+ * A Drive file as a picture, for placing on a layout page: images as they
+ * are, Google Drawings and Slides (first slide) exported as PNG, and the first
+ * page of a PDF. Throws for anything that cannot be shown as a picture.
+ */
+export async function drivePicture(file: DriveFile): Promise<Blob> {
+  const kind = driveKind(file);
+  if (kind === 'image') return download(file);
+  if (kind === 'pdf') return pdfPagePicture(await download(file));
+  if (file.mimeType === 'application/vnd.google-apps.drawing' || kind === 'gslides') {
+    const token = await getDriveToken();
+    const response = await fetch(`${API}/${encodeURIComponent(file.id)}/export?mimeType=image/png`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw await driveError(response);
+    return response.blob();
+  }
+  throw new Error('Only pictures, PDFs, Google Docs, Drawings and Slides can be placed on a layout page.');
 }

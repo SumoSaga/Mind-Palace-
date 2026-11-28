@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { AddBar } from './AddBar';
+import { AddBar, onEmptySurface } from './AddBar';
+import type { AddMenuRequest } from './AddBar';
+import { openFolder } from './library/folders';
 import { PdfThumb } from './PdfView';
 import { isPageLocation, removeItem, sendItem, undoManager, useItems, useLayouts } from './store';
 import type { Item, Layout } from './store';
@@ -16,6 +18,7 @@ const TYPE_WORD: Record<Item['type'], string> = {
   video: 'Video',
   link: 'Link',
   model: '3D model',
+  folder: 'Drive folder',
 };
 
 function titleOf(item: Item, layouts: Layout[]): string {
@@ -66,6 +69,7 @@ function Thumbnail({ item, layouts }: { item: Item; layouts: Layout[] }) {
     }
     return <span className="thumb-tile">{item.label ?? 'Live page'}</span>;
   }
+  if (item.type === 'folder') return <span className="thumb-tile thumb-folder">📁 {item.label ?? 'Folder'}</span>;
   if (item.type === 'text') return <span className="thumb-words">{(item.text ?? '').replace(/[#*]/g, '').slice(0, 220)}</span>;
   if (item.type === 'layout') {
     const layout = layouts.find((l) => l.id === item.layoutId);
@@ -114,6 +118,7 @@ export function Overview({
   const known = useKnownDevices();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
+  const [addAt, setAddAt] = useState<AddMenuRequest | null>(null);
   const dragRef = useRef<Drag | null>(null);
   dragRef.current = drag;
   /** Removes the listeners of a press or drag in progress. */
@@ -231,6 +236,9 @@ export function Overview({
           {it.type === 'link' && it.url && (
             <button onClick={() => window.open(it.url, '_blank', 'noopener,noreferrer')}>Open ↗</button>
           )}
+          {it.type === 'folder' && it.driveId && (
+            <button onClick={() => openFolder({ id: it.driveId!, name: it.label ?? 'Folder' })}>Open</button>
+          )}
           <select aria-label={`Move ${title} to`} value="" onChange={(e) => e.target.value && sendItem(it.id, e.target.value)}>
             <option value="">Move…</option>
             {places
@@ -262,12 +270,30 @@ export function Overview({
   const dragged = drag ? items.find((it) => it.id === drag.id) : undefined;
 
   return (
-    <div className={`overview${drag ? ' dragging' : ''}`} ref={scrollRef}>
+    <div
+      className={`overview${drag ? ' dragging' : ''}`}
+      ref={scrollRef}
+      onContextMenu={(e) => {
+        if (!onEmptySurface(e.target)) return;
+        e.preventDefault();
+        setAddAt({ x: e.clientX, y: e.clientY, at: { x: 200 + shelf.length * 24, y: 200 + shelf.length * 24 } });
+      }}
+    >
       <div className="toolbar">
         <span className="brand">Mind Palace</span>
-        <AddBar location={SHELF} place={() => ({ x: 200 + shelf.length * 24, y: 200 + shelf.length * 24 })} onOpenLayout={onOpenLayout} />
-        <button onClick={() => undoManager.undo()}>Undo</button>
-        <button onClick={() => undoManager.redo()}>Redo</button>
+        <AddBar
+          location={SHELF}
+          place={() => ({ x: 200 + shelf.length * 24, y: 200 + shelf.length * 24 })}
+          onOpenLayout={onOpenLayout}
+          request={addAt}
+          onRequestDone={() => setAddAt(null)}
+        />
+        <button onClick={() => undoManager.undo()} title="Undo" aria-label="Undo">
+          ↶
+        </button>
+        <button onClick={() => undoManager.redo()} title="Redo" aria-label="Redo">
+          ↷
+        </button>
       </div>
 
       <div className="ov-grid">

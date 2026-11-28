@@ -10,7 +10,7 @@ import { newId } from './id';
  * copy to the sync server so changes travel between devices.
  */
 
-export type ItemType = 'text' | 'image' | 'layout' | 'embed' | 'pdf' | 'video' | 'link' | 'model';
+export type ItemType = 'text' | 'image' | 'layout' | 'embed' | 'pdf' | 'video' | 'link' | 'model' | 'folder';
 
 export interface Item {
   id: string;
@@ -58,6 +58,8 @@ export interface Item {
   label?: string;
   /** For type 'layout': the layout document this Desk card opens. */
   layoutId?: string;
+  /** For type 'folder': the folder's id in Google Drive. */
+  driveId?: string;
   // Text styling. Font size is in the surface's unit (px on the Desk, pt on a page).
   fontFamily?: string;
   fontSize?: number;
@@ -263,6 +265,7 @@ export function removePage(pageId: string) {
 }
 
 export const getPages = pages.get;
+export const getLayouts = layouts.get;
 
 // --- stories: text flowing through linked frames -----------------------------
 

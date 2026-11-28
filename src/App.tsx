@@ -1,10 +1,13 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { RefineEditor, useRefineId } from './bg/RefineEditor';
 import { Desk } from './Desk';
 import { DeviceDialog } from './DeviceDialog';
 import { Dock } from './Dock';
 import { LayoutEditor } from './LayoutEditor';
 import { Library } from './library/Library';
+import { onOpenFolder } from './library/folders';
+import type { FolderRef } from './library/folders';
+import { Notices } from './notice';
 import { Overview } from './Overview';
 import { Stage } from './Stage';
 import { thisDevice } from './sync';
@@ -29,6 +32,16 @@ export function App() {
   const [naming, setNaming] = useState(!thisDevice.named);
   const busy = !!openLayout || !!refineId || naming;
   const [libraryOpen, setLibraryOpen] = useState(false);
+  /** A Mind Palace folder the Library was opened at, by opening its card. */
+  const [libraryFolder, setLibraryFolder] = useState<FolderRef | null>(null);
+  useEffect(
+    () =>
+      onOpenFolder((folder) => {
+        setLibraryFolder(folder);
+        setLibraryOpen(true);
+      }),
+    [],
+  );
 
   function changeMode(next: Mode) {
     setSelected(null);
@@ -62,15 +75,21 @@ export function App() {
         selected={selected}
         onSent={() => setSelected(null)}
         libraryOpen={libraryOpen}
-        onToggleLibrary={() => setLibraryOpen((open) => !open)}
+        onToggleLibrary={() => {
+          setLibraryFolder(null);
+          setLibraryOpen((open) => !open);
+        }}
       />
       {libraryOpen && !busy && (
         <Library
+          key={libraryFolder?.id ?? 'drive'}
           // On your own Stage, new things go to this device; otherwise to "Not on a device".
           defaultLocation={mode === 'stage' ? thisDevice.id : 'desk'}
+          startFolder={libraryFolder ?? undefined}
           onClose={() => setLibraryOpen(false)}
         />
       )}
+      <Notices />
       {openLayout && <LayoutEditor key={openLayout} layoutId={openLayout} onClose={closeLayout} />}
       {refineId && <RefineEditor key={refineId} itemId={refineId} />}
       {/* The first time a device opens Mind Palace, it is asked for a name and type. */}

@@ -140,6 +140,15 @@ Connecting devices (the home setup, without Google sign-in):
 - Google Docs, Sheets and Slides arrive as live windows. Images, PDFs, videos and 3D models are downloaded and copied into Mind Palace's file store. Anything else becomes a link card.
 - It asks Google for read-only access to Drive, and works only on the computer running the app (`http://localhost:5173`), because that is the address Google has been told about. Setup, once: enable the **Google Drive API** in the same Google Cloud project used for Docs.
 - 3D models (GLB, glTF, STL, OBJ) open in a window you can orbit, zoom and pan; "Add file" accepts them too. Colouring models is not built yet. See `src/library/`, `src/ModelView.tsx`; check the file rules with `node scripts/test-library.mjs`.
+- 3D models: one finger (or the left mouse button) turns the model; two fingers pinch to zoom, drag to move and twist to rotate it flat on the screen. "Reset view" goes back to the start.
+- Mind Palace folders: "+ Add" then "Google Drive folder" makes a folder inside a **Mind Palace** folder in your Drive and puts it on the surface as a card. Drop pictures or files from your computer on the card, or drag pictures, text (saved as a Google Doc), PDFs, videos or 3D models on the surface onto it, to save them into the folder; the item then leaves the surface. "Open" shows the folder in the Library, from where things can be dragged back out. Writing uses Google's `drive.file` permission, which reaches only files Mind Palace made. See `src/library/folders.ts`.
+
+## Adding things, and the layout editor's book view
+
+- Every surface has one compact "+ Add" button; right-clicking empty space opens the same menu at that spot (text, file, link, layout, Drive folder).
+- The layout editor's bar is one slim row: Page setup (size, margins, bleed, facing pages, crop marks, theme, print tiling, delete page) opens as a panel, "+ Add" holds text, pictures, Google Drive, Google Doc text, the Desk tray and new pages, and the selected item's tools float over the top of the page area. Right-click a page to add text right there.
+- "Book" shows one two-page spread at a time, turned with the side arrows, Page Up / Page Down, or the arrow keys when nothing is selected, with a strip of miniature spreads along the bottom. It is the default for facing-page layouts with more than two pages; "All pages" shows them all, scrolling.
+- "From Google Drive" in the layout editor opens the Library over the editor: click a file to place it on the current page, or drag it onto any page. Pictures come in as they are, PDFs as their first page, Google Slides as the first slide, Google Drawings as a picture, and Google Docs through the "From Google Doc" dialog (with formatting and pictures).
 
 ## Hosting it
 

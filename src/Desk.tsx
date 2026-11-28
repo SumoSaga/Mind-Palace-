@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
 import { BackgroundButtons } from './bg/removeBackground';
-import { resolveLink } from './embed';
+import { AddBar, onEmptySurface } from './AddBar';
+import type { AddMenuRequest } from './AddBar';
 import { fileKind, uploadFile } from './files';
 import { readImage, useEditingKeys, usePanZoom } from './hooks';
 import type { Point } from './hooks';
 import { ItemView } from './ItemView';
 import {
   addItem,
-  addLayout,
   isPageLocation,
   removeItem,
   sendItem,
@@ -37,12 +37,8 @@ export function Desk({ active, selected, setSelected, onOpenLayout, onClose }: P
   const known = useKnownDevices();
   const devices = useDevices();
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [linking, setLinking] = useState(false);
-  const [link, setLink] = useState('');
-  const [linkError, setLinkError] = useState<string | null>(null);
-  const [linkBusy, setLinkBusy] = useState(false);
-  const [uploading, setUploading] = useState(0);
+  const [addAt, setAddAt] = useState<AddMenuRequest | null>(null);
+  const [, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const { rootRef, view, setView, toWorld, handlers } = usePanZoom(() => setSelected(null));
 
@@ -102,7 +98,7 @@ export function Desk({ active, selected, setSelected, onOpenLayout, onClose }: P
   }
 
   useEditingKeys({
-    active: active && !linking,
+    active,
     onDelete: deleteSelected,
     onEscape: () => setSelected(null),
     onUndo: () => undoManager.undo(),
@@ -132,6 +128,12 @@ export function Desk({ active, selected, setSelected, onOpenLayout, onClose }: P
         {...handlers}
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
+        onContextMenu={(e) => {
+          // Right-click on empty space: the add menu, placing things where it was clicked.
+          if (!onEmptySurface(e.target)) return;
+          e.preventDefault();
+          setAddAt({ x: e.clientX, y: e.clientY, at: toWorld(e.clientX, e.clientY) });
+        }}
       >
         <div
           className="world"
@@ -178,50 +180,32 @@ export function Desk({ active, selected, setSelected, onOpenLayout, onClose }: P
       </div>
 
       <div className="toolbar">
-        <button onClick={onClose}>← Overview</button>
+        <button onClick={onClose} title="Back to the Overview">
+          ← Overview
+        </button>
         <span className="brand">Canvas</span>
-        <button onClick={() => addText(viewCentre())}>Add text</button>
-        <button onClick={() => fileRef.current?.click()} title="Add images, PDFs or videos (MP4, WebM)">
-          {uploading ? 'Uploading…' : 'Add file'}
-        </button>
-        <button
-          onClick={() => setLinking(true)}
-          title="Show a Google Doc, Sheet or Slides file, or a YouTube or Vimeo video, live on the Desk"
-        >
-          Add link
-        </button>
-        <button
-          onClick={() => {
-            const { itemId, layoutId } = addLayout(viewCentre());
-            setSelected(itemId);
-            onOpenLayout(layoutId);
-          }}
-        >
-          New layout
-        </button>
+        <AddBar
+          location="desk"
+          place={viewCentre}
+          onAdded={setSelected}
+          onOpenLayout={onOpenLayout}
+          request={addAt}
+          onRequestDone={() => setAddAt(null)}
+        />
         <BackgroundButtons item={items.find((it) => it.id === selected)} />
         <button disabled={!selected} onClick={deleteSelected}>
           Delete
         </button>
-        <button onClick={() => undoManager.undo()}>Undo</button>
-        <button onClick={() => undoManager.redo()}>Redo</button>
+        <button onClick={() => undoManager.undo()} title="Undo" aria-label="Undo">
+          ↶
+        </button>
+        <button onClick={() => undoManager.redo()} title="Redo" aria-label="Redo">
+          ↷
+        </button>
         <button onClick={() => setView({ x: 0, y: 0, k: 1 })} title="Reset view">
           {Math.round(view.k * 100)}%
         </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*,application/pdf,video/mp4,video/webm,.glb,.gltf,.stl,.obj"
-          multiple
-          hidden
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = '';
-            void addImages(files, viewCentre());
-          }}
-        />
       </div>
-
       {menu && items.some((it) => it.id === menu.id) && (
         <ItemMenu
           x={menu.x}
@@ -252,85 +236,6 @@ export function Desk({ active, selected, setSelected, onOpenLayout, onClose }: P
         </div>
       )}
 
-      {linking && (
-        <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && setLinking(false)}>
-          <form
-            className="modal"
-            role="dialog"
-            aria-label="Add a link"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (linkBusy) return;
-              setLinkBusy(true);
-              setLinkError(null);
-              try {
-                const result = await resolveLink(link);
-                const at = viewCentre();
-                if (result.kind === 'embed') {
-                  const { embed } = result;
-                  setSelected(
-                    addItem({
-                      type: 'embed',
-                      url: embed.src,
-                      label: embed.label,
-                      x: at.x - embed.w / 2,
-                      y: at.y - embed.h / 2,
-                      w: embed.w,
-                      h: embed.h,
-                    }),
-                  );
-                } else {
-                  // The site cannot be shown inside another page: a card that opens it instead.
-                  const w = 320;
-                  const h = result.image ? 300 : 150;
-                  setSelected(
-                    addItem({
-                      type: 'link',
-                      url: result.url,
-                      label: result.label,
-                      text: result.title ?? result.label,
-                      src: result.image,
-                      x: at.x - w / 2,
-                      y: at.y - h / 2,
-                      w,
-                      h,
-                    }),
-                  );
-                }
-                setLink('');
-                setLinking(false);
-              } catch (err) {
-                setLinkError(err instanceof Error ? err.message : String(err));
-              } finally {
-                setLinkBusy(false);
-              }
-            }}
-          >
-            <h2>Add a link</h2>
-            <p>
-              A link to a Google Doc, Sheet or Slides file, or to a YouTube or Vimeo video, appears live so you can use
-              it here. Most other websites do not allow themselves to be shown inside another page; those become a card
-              that opens the site in a new tab.
-            </p>
-            <p className="connect-note">
-              For YouTube, use the link to a video or playlist, not the YouTube home page.
-            </p>
-            <label className="field">
-              Link
-              <input autoFocus value={link} placeholder="https://…" onChange={(e) => setLink(e.target.value)} />
-            </label>
-            {linkError && <p className="error">{linkError}</p>}
-            <div className="modal-actions">
-              <button type="button" onClick={() => setLinking(false)}>
-                Cancel
-              </button>
-              <button type="submit" className="primary" disabled={!link.trim() || linkBusy}>
-                {linkBusy ? 'Checking the link…' : 'Add to Desk'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </>
   );
 }

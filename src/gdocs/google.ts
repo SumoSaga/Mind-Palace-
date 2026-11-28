@@ -86,8 +86,28 @@ export function isDriveConnected(): boolean {
   return !!cached && cached.expires > Date.now() + 60_000;
 }
 
-/** Forgets the Drive token, after Google has rejected it. */
-export const forgetDriveToken = () => tokens.delete(DRIVE_SCOPE);
+/**
+ * Access to files Mind Palace itself creates in Drive (its "Mind Palace"
+ * folder and what is put in it), and to nothing else. Asked for only when a
+ * folder is first made or something is first put in one.
+ */
+const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+export const getDriveFileToken = () => getToken(DRIVE_FILE_SCOPE);
+
+/** A Drive token already granted in this session, if any, so nothing needs a sign-in window. */
+export function cachedDriveToken(): string | null {
+  for (const scope of [DRIVE_SCOPE, DRIVE_FILE_SCOPE]) {
+    const cached = tokens.get(scope);
+    if (cached && cached.expires > Date.now() + 60_000) return cached.value;
+  }
+  return null;
+}
+
+/** Forgets the Drive tokens, after Google has rejected one. */
+export const forgetDriveToken = () => {
+  tokens.delete(DRIVE_SCOPE);
+  tokens.delete(DRIVE_FILE_SCOPE);
+};
 
 /** Returns an access token for a scope, opening Google's sign-in window if one is needed. */
 async function getToken(scope: string): Promise<string> {

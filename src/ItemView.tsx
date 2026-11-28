@@ -6,9 +6,12 @@ import { deviceAt, highlightDevice } from './Dock';
 import type { FlowInfo } from './flow';
 import { renderAll } from './markup';
 import { ModelView } from './ModelView';
+import { FolderCard } from './library/FolderCard';
+import { canGoInFolder, putItemInFolder } from './library/folders';
+import { showNotice } from './notice';
 import { PdfView } from './PdfView';
 import type { Point } from './hooks';
-import { bringToFront, sendItem, updateItem } from './store';
+import { bringToFront, removeItem, sendItem, updateItem } from './store';
 import type { Item, Layout } from './store';
 
 /** 'px' on the Desk; 'pt' on a layout page, so screen and print share one size. */
@@ -239,6 +242,24 @@ export function ItemView({
     window.addEventListener('pointercancel', end);
   }
 
+  /** The Mind Palace folder card under a screen point, other than this item itself. */
+  function folderAt(x: number, y: number): HTMLElement | null {
+    if (item.type === 'folder' || unit === 'pt') return null;
+    for (const el of document.elementsFromPoint(x, y)) {
+      if (rootRef.current?.contains(el)) continue;
+      const folder = (el as HTMLElement).closest<HTMLElement>('[data-folder]');
+      if (folder) return folder;
+    }
+    return null;
+  }
+  const markedFolder = useRef<HTMLElement | null>(null);
+  function markFolder(el: HTMLElement | null) {
+    if (markedFolder.current === el) return;
+    markedFolder.current?.classList.remove('folder-target');
+    el?.classList.add('folder-target');
+    markedFolder.current = el;
+  }
+
   /** Starts resizing with two fingers: the item grows and shrinks about its centre. */
   function beginPinch(g: Gesture) {
     const [a, b] = [...g.touches.values()];
@@ -303,6 +324,7 @@ export function ItemView({
         const p = live.current.toWorld(ev.clientX, ev.clientY);
         live.current.change({ x: g.move.x + p.x - g.move.start.x, y: g.move.y + p.y - g.move.start.y });
         if (!g.pinched) highlightDevice(deviceAt(ev.clientX, ev.clientY));
+        if (!g.pinched) markFolder(folderAt(ev.clientX, ev.clientY));
       }
     };
     const onEnd = (ev: PointerEvent) => {
@@ -321,6 +343,26 @@ export function ItemView({
       g.stop();
       gesture.current = null;
       highlightDevice(null);
+      markFolder(null);
+      // Dropped on a Mind Palace folder: save it into the folder in Drive, then take it off the surface.
+      const folder = !g.pinched && ev.type === 'pointerup' ? folderAt(ev.clientX, ev.clientY) : null;
+      if (folder) {
+        const moved = live.current.item;
+        live.current.change({ x: g.home.x, y: g.home.y });
+        const name = folder.closest('.item')?.querySelector('strong')?.textContent ?? 'the folder';
+        if (!canGoInFolder(moved)) {
+          showNotice('Only pictures, text, PDFs, videos and 3D models can be put in a folder.', true);
+          return;
+        }
+        showNotice(`Saving into ${name}…`);
+        putItemInFolder(moved, folder.dataset.folder!)
+          .then(() => {
+            removeItem(moved.id);
+            showNotice(`Saved into ${name} in Google Drive.`);
+          })
+          .catch((err: unknown) => showNotice(`Not saved: ${err instanceof Error ? err.message : String(err)}`, true));
+        return;
+      }
       // A quick tap on the arrange cover means "I am done arranging": the
       // content goes live again. Otherwise arrange mode lingers a few seconds,
       // long enough for another pinch or drag, then ends by itself.
@@ -545,6 +587,7 @@ export function ItemView({
           {!fullScreen && <div className="window-grip" title="Drag to resize" onPointerDown={(e) => onResizePointerDown(e, 1, 1)} />}
         </>
       )}
+      {item.type === 'folder' && <FolderCard item={item} />}
       {item.type === 'layout' && (
         <div className="layout-card">
           <div className="layout-card-page" />

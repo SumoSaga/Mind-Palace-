@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { uploadFile } from './files';
+import { ItemMenu } from './ItemMenu';
+import { Library } from './library/Library';
+import type { DriveFile } from './library/classify';
+import { drivePicture, imageSize } from './library/drive';
 import type { CSSProperties } from 'react';
 import { useRefineId } from './bg/RefineEditor';
 import { BackgroundButtons } from './bg/removeBackground';
@@ -42,6 +47,8 @@ import {
   useLayouts,
   usePages,
   addStoryFrame,
+  getLayouts,
+  getPages,
   markStoryPushed,
   refreshStory,
   useStories,
@@ -163,13 +170,47 @@ interface Props {
   onClose: () => void;
 }
 
+/** A tiny picture of a page for the book view's strip: its pictures, and grey blocks for its text. */
+function MiniPage({ page, layout, items, paper }: { page: Page; layout: Layout; items: Item[]; paper: string }) {
+  const location = pageLocation(page.id);
+  const pct = (v: number, of: number) => `${(v / of) * 100}%`;
+  return (
+    <span className="mini-page" style={{ aspectRatio: `${layout.w} / ${layout.h}`, background: paper }}>
+      {items
+        .filter((it) => it.location === location)
+        .map((it) => (
+          <span
+            key={it.id}
+            className={`mini-${it.type}`}
+            style={{ left: pct(it.x, layout.w), top: pct(it.y, layout.h), width: pct(it.w, layout.w), height: pct(it.h, layout.h) }}
+          >
+            {it.type === 'image' && it.src && <img src={it.src} alt="" draggable={false} />}
+          </span>
+        ))}
+    </span>
+  );
+}
+
 export function LayoutEditor({ layoutId, onClose }: Props) {
   const layout = useLayouts().find((l) => l.id === layoutId);
   const pages = usePages().filter((p) => p.layoutId === layoutId);
   const items = useItems();
   const [selected, setSelected] = useState<string | null>(null);
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
-  const [trayOpen, setTrayOpen] = useState(true);
+  const [trayOpen, setTrayOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  /** A Google Doc chosen in the Library, waiting in the "From Google Doc" dialog. */
+  const [pullLink, setPullLink] = useState<string | null>(null);
+  /** The add menu, from the "+ Add" button or a right-click: the page and point things go to. */
+  const [addMenu, setAddMenu] = useState<{ x: number; y: number; pageId: string | null; pt: { x: number; y: number } | null } | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  /** Book view: one spread at a time, turned like pages. */
+  const [bookMode, setBookMode] = useState(() => {
+    const l = getLayouts().find((x) => x.id === layoutId);
+    return !!l?.facing && getPages().filter((p) => p.layoutId === layoutId).length > 2;
+  });
+  const [flipDir, setFlipDir] = useState<'next' | 'prev' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const fitted = useRef(false);
   const refining = !!useRefineId();
@@ -191,6 +232,16 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   const selItem = items.find((it) => it.id === selected);
   const selStory = selItem?.storyId ? stories.find((s) => s.id === selItem.storyId) : undefined;
   const current = placed.find((p) => p.page.id === currentPageId) ?? placed[0];
+  // Spreads: the pages that sit side by side (one row of the page layout).
+  const spreads: Placed[][] = [];
+  for (const p of placed) {
+    const last = spreads[spreads.length - 1];
+    if (last && last[0].y === p.y) last.push(p);
+    else spreads.push([p]);
+  }
+  const spreadIndex = Math.max(0, spreads.findIndex((s) => s.some((p) => p.page.id === current?.page.id)));
+  /** The pages drawn: all of them, or in book view only the current spread, at the top. */
+  const shown: Placed[] = bookMode ? (spreads[spreadIndex] ?? []).map((p) => ({ ...p, y: 0 })) : placed;
   const sel = items.find((it) => it.id === selected);
   const deskItems = items.filter((it) => it.location === 'desk' && (it.type === 'text' || it.type === 'image'));
 
@@ -201,23 +252,27 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
 
   // Start with the first spread fitted to the screen, and keep it fitted if the
   // window changes size, until the user pans or zooms for themselves.
-  const fitSize = layout ? `${layout.w},${layout.h},${layout.facing}` : '';
+  const fitSize = layout ? `${layout.w},${layout.h},${layout.facing},${bookMode},${bookMode ? spreadIndex : 0},${trayOpen}` : '';
   const fitSizeRef = useRef(fitSize);
   fitSizeRef.current = fitSize;
   useEffect(() => {
     const root = rootRef.current;
     if (!root || !fitSize) return;
+    fitted.current = false; // a new spread, size or view: fit it afresh
     const fit = () => {
       if (fitted.current) return;
-      const [w, h, facing] = fitSizeRef.current.split(',');
+      const [w, h, facing, book, , tray] = fitSizeRef.current.split(',');
       const r = root.getBoundingClientRect();
       if (r.width < 50 || r.height < 50) return;
       const pw = +w / PT_PER_PX;
       const ph = +h / PT_PER_PX;
       const spreadW = facing === 'true' ? pw * 2 : pw;
-      const tray = r.width > 700 ? 210 : 0; // leave room for the "From the Desk" panel
-      const k = Math.max(0.1, Math.min(2, (r.width - tray - 80) / spreadW, (r.height - 80) / ph));
-      setView({ k, x: (r.width - tray - spreadW * k) / 2, y: 40 });
+      const side = tray === 'true' && r.width > 700 ? 210 : 0; // leave room for the "From the Desk" panel
+      // Book view keeps room at the bottom for the strip of spreads, and centres the spread.
+      const bottom = book === 'true' ? 150 : 60;
+      const k = Math.max(0.1, Math.min(2, (r.width - side - 120) / spreadW, (r.height - bottom - 30) / ph));
+      const y = book === 'true' ? Math.max(20, (r.height - bottom - ph * k) / 2) : 30;
+      setView({ k, x: (r.width - side - spreadW * k) / 2, y });
     };
     const stop = () => {
       fitted.current = true;
@@ -284,15 +339,18 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
     setSelected(null);
   }
 
-  function addText(text = 'Double-click to edit') {
-    if (!layout || !current) return;
-    const w = layout.w - layout.margin * 2;
+  /** Adds a text frame: on a given page at a point (from a right-click), or across the current page's margins. */
+  function addText(text = 'Double-click to edit', pageId?: string | null, at?: { x: number; y: number } | null) {
+    const page = pageId ?? current?.page.id;
+    if (!layout || !page) return;
+    const w = at ? Math.min(220, layout.w - layout.margin * 2) : layout.w - layout.margin * 2;
+    setCurrentPageId(page);
     setSelected(
       addItem({
         type: 'text',
-        location: pageLocation(current.page.id),
-        x: layout.margin,
-        y: layout.margin,
+        location: pageLocation(page),
+        x: at ? Math.max(0, Math.min(at.x, layout.w - w)) : layout.margin,
+        y: at ? Math.max(0, at.y) : layout.margin,
         w,
         // Long pasted text gets a frame filling the margins, ready to flow on.
         h: text.length > 300 ? layout.h - layout.margin * 2 : 72,
@@ -354,13 +412,13 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
   function onDragEnd(id: string) {
     if (!layout) return;
     const it = getItems().find((i) => i.id === id);
-    const from = it && placed.find((p) => pageLocation(p.page.id) === it.location);
+    const from = it && shown.find((p) => pageLocation(p.page.id) === it.location);
     if (!it || !from) return;
     const pw = layout.w / PT_PER_PX;
     const ph = layout.h / PT_PER_PX;
     const cx = from.x + (it.x + it.w / 2) / PT_PER_PX;
     const cy = from.y + (it.y + it.h / 2) / PT_PER_PX;
-    const to = placed.find((p) => cx >= p.x && cx <= p.x + pw && cy >= p.y && cy <= p.y + ph);
+    const to = shown.find((p) => cx >= p.x && cx <= p.x + pw && cy >= p.y && cy <= p.y + ph);
     if (to && to !== from) {
       updateItem(id, {
         location: pageLocation(to.page.id),
@@ -371,8 +429,74 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
     }
   }
 
+  /** Turns to a spread in book view. */
+  function goSpread(index: number) {
+    const target = spreads[Math.max(0, Math.min(index, spreads.length - 1))];
+    if (!target || index === spreadIndex) return;
+    setFlipDir(index > spreadIndex ? 'next' : 'prev');
+    setSelected(null);
+    setCurrentPageId(target[0].page.id);
+  }
+
+  function addPageAndShow() {
+    const id = addPage(layoutId);
+    setCurrentPageId(id);
+    setFlipDir('next');
+  }
+
+  // Book view: Page Up / Page Down turn the page, and so do the arrow keys when nothing is selected.
+  useEffect(() => {
+    if (!bookMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target instanceof Element ? e.target : null;
+      if (el?.closest('input, select, textarea, [contenteditable="true"]') || docDialog || suggesting || dataOpen || setupOpen) return;
+      const forward = e.key === 'PageDown' || (!selected && e.key === 'ArrowRight');
+      const back = e.key === 'PageUp' || (!selected && e.key === 'ArrowLeft');
+      if (!forward && !back) return;
+      e.preventDefault();
+      goSpread(spreadIndex + (forward ? 1 : -1));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  /** The page under a screen point, and the point on it in points. */
+  function pageAt(clientX: number, clientY: number): { page: Page; pt: { x: number; y: number } } | null {
+    for (const el of document.elementsFromPoint(clientX, clientY)) {
+      const id = (el as HTMLElement).closest<HTMLElement>('.page[data-page-id]')?.dataset.pageId;
+      const hit = id ? shown.find((p) => p.page.id === id) : undefined;
+      if (hit) {
+        const w = toWorld(clientX, clientY);
+        return { page: hit.page, pt: { x: (w.x - hit.x) * PT_PER_PX, y: (w.y - hit.y) * PT_PER_PX } };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A file chosen in the Library: a Google Doc's text goes through the "From
+   * Google Doc" dialog; anything that can be a picture is placed on the page it
+   * was dropped on (or the current page), copied into Mind Palace's file store.
+   */
+  async function pickFromDrive(file: DriveFile, drop: { x: number; y: number } | null) {
+    if (file.mimeType === 'application/vnd.google-apps.document') {
+      setPullLink(file.id);
+      setDocDialog('pull');
+      return;
+    }
+    const hit = drop ? pageAt(drop.x, drop.y) : null;
+    const page = hit?.page ?? current?.page;
+    if (!layout || !page) return;
+    const blob = await drivePicture(file);
+    const [size, src] = await Promise.all([imageSize(blob), uploadFile(blob, blob.type || 'image/png')]);
+    let box = fit(size.w * PT_PER_PX, size.h * PT_PER_PX);
+    if (hit) box = { ...box, x: hit.pt.x - box.w / 2, y: hit.pt.y - box.h / 2 };
+    setCurrentPageId(page.id);
+    setSelected(addItem({ type: 'image', location: pageLocation(page.id), src, ...box }));
+  }
+
   useEditingKeys({
-    active: !refining && !docDialog && !suggesting && !dataOpen,
+    active: !refining && !docDialog && !suggesting && !dataOpen && !setupOpen,
     onDelete: deleteSelected,
     onEscape: () => setSelected(null),
     onUndo: () => undoManager.undo(),
@@ -394,16 +518,10 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
     backgroundPosition: `${view.x}px ${view.y}px`,
   };
 
-  return (
-    <div className="editor">
-      <div className="editor-bar">
-        <button onClick={onClose}>← Desk</button>
-        <input
-          className="name"
-          aria-label="Layout name"
-          value={layout.name}
-          onChange={(e) => updateLayout(layoutId, { name: e.target.value })}
-        />
+  const pageSetup = (
+    <div className="popover page-setup" role="dialog" aria-label="Page setup">
+      <label>
+        Size
         <select
           aria-label="Page size"
           value={preset?.key ?? 'custom'}
@@ -431,11 +549,9 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           ))}
           <option value="custom">Custom size</option>
         </select>
-        {presetNote && (
-          <span className="print-info service-note" title={presetNote}>
-            Export note
-          </span>
-        )}
+      </label>
+      {presetNote && <p className="print-info service-note">{presetNote}</p>}
+      <div className="setup-row">
         <label>
           W
           <input
@@ -457,6 +573,8 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           />
           in
         </label>
+      </div>
+      <div className="setup-row">
         <label>
           Margin
           <input
@@ -466,7 +584,6 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
             value={inches(layout.margin)}
             onChange={(e) => +e.target.value >= 0 && updateLayout(layoutId, { margin: +e.target.value * 72 })}
           />
-          in
         </label>
         <label title="Extra area past the trim edge for art that runs off the page. Printers usually ask for 0.125 in.">
           Bleed
@@ -479,157 +596,286 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           />
           in
         </label>
-        <label title="Print short lines outside the page showing where to trim">
-          <input
-            type="checkbox"
-            checked={!!layout.marks}
-            onChange={(e) => updateLayout(layoutId, { marks: e.target.checked })}
-          />
-          Crop marks
-        </label>
+      </div>
+      <div className="setup-row">
         <label>
-          <input
-            type="checkbox"
-            checked={layout.facing}
-            onChange={(e) => updateLayout(layoutId, { facing: e.target.checked })}
-          />
+          <input type="checkbox" checked={layout.facing} onChange={(e) => updateLayout(layoutId, { facing: e.target.checked })} />
           Facing pages
         </label>
-        <label title="A coordinated look: fonts, colours and paper. Restyles all the text in this layout.">
-          Theme
-          <select value={theme.id} onChange={(e) => applyTheme(e.target.value)}>
-            {THEMES.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+        <label title="Print short lines outside the page showing where to trim">
+          <input type="checkbox" checked={!!layout.marks} onChange={(e) => updateLayout(layoutId, { marks: e.target.checked })} />
+          Crop marks
         </label>
-        <span className="spacer" />
+      </div>
+      <label title="A coordinated look: fonts, colours and paper. Restyles all the text in this layout.">
+        Theme
+        <select value={theme.id} onChange={(e) => applyTheme(e.target.value)}>
+          {THEMES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label title="Print each page on its own, or tile small pages such as cards onto sheets of paper with cut marks">
+        Print
         <select
-          aria-label="Print on"
-          title="Print each page on its own, or tile small pages such as cards onto sheets of paper with cut marks"
           value={layout.sheet ?? 'own'}
           onChange={(e) =>
             updateLayout(layoutId, { sheet: e.target.value === 'own' ? undefined : (e.target.value as Layout['sheet']) })
           }
         >
-          <option value="own">Print one page each</option>
+          <option value="own">One page each</option>
           {Object.entries(PAPERS).map(([key, p]) => (
             <option key={key} value={key}>
               Tile onto {p.label}
             </option>
           ))}
         </select>
-        {layout.sheet && !plan.tooBig && (
-          <label title="Odd pages are fronts and even pages their backs. Backs print on alternate sheets, mirrored so they line up when the paper is flipped side to side.">
-            <input
-              type="checkbox"
-              checked={!!layout.duplex}
-              onChange={(e) => updateLayout(layoutId, { duplex: e.target.checked })}
-            />
-            Double-sided
-          </label>
-        )}
-        {layout.sheet && (
-          <span className="print-info">
-            {plan.tooBig
-              ? 'Page is too big to tile'
-              : `${plan.perSheet} per sheet · ${plan.sheets.length} ${plan.sheets.length === 1 ? 'sheet' : 'sheets'}`}
+      </label>
+      {layout.sheet && !plan.tooBig && (
+        <label title="Odd pages are fronts and even pages their backs. Backs print on alternate sheets, mirrored so they line up when the paper is flipped side to side.">
+          <input type="checkbox" checked={!!layout.duplex} onChange={(e) => updateLayout(layoutId, { duplex: e.target.checked })} />
+          Double-sided
+        </label>
+      )}
+      {layout.sheet && (
+        <span className="print-info">
+          {plan.tooBig
+            ? 'Page is too big to tile'
+            : `${plan.perSheet} per sheet · ${plan.sheets.length} ${plan.sheets.length === 1 ? 'sheet' : 'sheets'}`}
+        </span>
+      )}
+      <button
+        className="danger"
+        disabled={pages.length < 2 || !current}
+        onClick={() => {
+          if (current && window.confirm('Delete this page and everything on it?')) removePage(current.page.id);
+        }}
+      >
+        Delete page {current ? pages.indexOf(current.page) + 1 : ''}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="editor">
+      <div className="editor-bar">
+        <button onClick={onClose} title="Back">
+          ←
+        </button>
+        <input
+          className="name"
+          aria-label="Layout name"
+          value={layout.name}
+          onChange={(e) => updateLayout(layoutId, { name: e.target.value })}
+        />
+        <button className={setupOpen ? 'on' : ''} onClick={() => setSetupOpen((o) => !o)} title="Page size, margins, bleed, theme and printing">
+          Page setup ▾
+        </button>
+        <button
+          ref={addButtonRef}
+          title="Add text, pictures, Google Drive files, Google Doc text or pages. You can also right-click a page."
+          onClick={() => {
+            const r = addButtonRef.current!.getBoundingClientRect();
+            setAddMenu({ x: r.left, y: r.bottom + 4, pageId: current?.page.id ?? null, pt: null });
+          }}
+        >
+          + Add
+        </button>
+        <button onClick={() => undoManager.undo()} title="Undo" aria-label="Undo">
+          ↶
+        </button>
+        <button onClick={() => undoManager.redo()} title="Redo" aria-label="Redo">
+          ↷
+        </button>
+        <span className="segmented" role="group" aria-label="How pages are shown">
+          <button className={!bookMode ? 'on' : ''} onClick={() => setBookMode(false)} title="All pages, scrolling down">
+            All pages
+          </button>
+          <button className={bookMode ? 'on' : ''} onClick={() => setBookMode(true)} title="One spread at a time, like a book. Flip with the arrows or Page Up / Page Down.">
+            Book
+          </button>
+        </span>
+        <span className="spacer" />
+        {data && rowCount > 0 && (
+          <span className="row-pager" title="The data row shown in the template. Printing makes every card.">
+            <button disabled={shownRow <= 0} onClick={() => setPreviewRow(shownRow - 1)} aria-label="Previous row">
+              ‹
+            </button>
+            Row {shownRow + 1}/{rowCount}
+            <button disabled={shownRow >= rowCount - 1} onClick={() => setPreviewRow(shownRow + 1)} aria-label="Next row">
+              ›
+            </button>
+            <span className="print-info">{cardCount} cards</span>
           </span>
         )}
+        <button onClick={() => setDataOpen(true)} title="Make many cards from one template and a table of rows">
+          Card data
+        </button>
+        <button className="on" onClick={() => setSuggesting(true)} title="See arrangements for what is on the current page">
+          Suggest
+        </button>
         <button onClick={() => window.print()} title="Print at true size, or choose Save as PDF">
           Print / PDF
         </button>
+        <span className="zoom">{Math.round(view.k * 100)}%</span>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = '';
+            void addImages(files);
+          }}
+        />
       </div>
+      {setupOpen && (
+        <>
+          <div className="popover-backdrop" onPointerDown={() => setSetupOpen(false)} />
+          {pageSetup}
+        </>
+      )}
 
-      <div className="editor-bar">
-        <button onClick={() => addText()}>Add text</button>
-        <button onClick={() => fileRef.current?.click()}>Add image</button>
-        <button onClick={() => setCurrentPageId(addPage(layoutId))}>Add page</button>
-        <button
-          disabled={pages.length < 2 || !current}
-          onClick={() => {
-            if (current && window.confirm('Delete this page and everything on it?')) removePage(current.page.id);
+      <div className="editor-body">
+        <div
+          ref={rootRef}
+          className="desk"
+          style={surfaceStyle}
+          {...handlers}
+          onContextMenu={(e) => {
+            const el = e.target as HTMLElement;
+            if (el.closest('.item, button, input, select')) return;
+            e.preventDefault();
+            const hit = pageAt(e.clientX, e.clientY);
+            setAddMenu({ x: e.clientX, y: e.clientY, pageId: hit?.page.id ?? current?.page.id ?? null, pt: hit?.pt ?? null });
           }}
         >
-          Delete page
-        </button>
-        <button onClick={() => undoManager.undo()}>Undo</button>
-        <button onClick={() => undoManager.redo()}>Redo</button>
-        <span className="divider" />
-        {sel && sel.type === 'text' && (
-          <>
-            <select
-              aria-label="Font"
-              value={sel.fontFamily ?? DEFAULT_FONT}
-              onChange={(e) => styleText(sel,{ fontFamily: e.target.value })}
-            >
-              {FONT_GROUPS.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.fonts.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <label>
-              <input
-                type="number"
-                aria-label="Font size in points"
-                min={4}
-                max={400}
-                value={sel.fontSize ?? 11}
-                onChange={(e) => +e.target.value >= 4 && styleText(sel,{ fontSize: +e.target.value })}
-              />
-              pt
-            </label>
-            <input
-              type="color"
-              aria-label="Text colour"
-              value={sel.color ?? '#1a1a1a'}
-              onChange={(e) => styleText(sel,{ color: e.target.value })}
-            />
-            <select
-              aria-label="Alignment"
-              value={sel.align ?? 'left'}
-              onChange={(e) => styleText(sel,{ align: e.target.value as Item['align'] })}
-            >
-              <option value="left">Left</option>
-              <option value="center">Centre</option>
-              <option value="right">Right</option>
-              <option value="justify">Justified</option>
-            </select>
-            <button className={sel.bold ? 'on' : ''} onClick={() => styleText(sel,{ bold: !sel.bold })}>
-              <b>B</b>
-            </button>
-            <button className={sel.italic ? 'on' : ''} onClick={() => styleText(sel,{ italic: !sel.italic })}>
-              <i>I</i>
-            </button>
-          </>
-        )}
+          <div
+            className="world"
+            style={{
+              transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`,
+              ['--inv' as string]: 1 / view.k,
+            }}
+          >
+            <div key={bookMode ? `spread-${spreadIndex}` : 'all'} className={`pages-wrap${bookMode && flipDir ? ` flip-${flipDir}` : ''}`}>
+              {shown.map(({ page, x, y }) => {
+                const i = pages.indexOf(page);
+                const location = pageLocation(page.id);
+                const toPage = (clientX: number, clientY: number) => {
+                  const p = toWorld(clientX, clientY);
+                  return { x: (p.x - x) * PT_PER_PX, y: (p.y - y) * PT_PER_PX };
+                };
+                return (
+                  <div
+                    key={page.id}
+                    data-pan
+                    data-page-id={page.id}
+                    className={`page${current?.page.id === page.id ? ' current' : ''}`}
+                    style={{
+                      left: x,
+                      top: y,
+                      width: `${layout.w}pt`,
+                      height: `${layout.h}pt`,
+                      background: theme.paper,
+                    }}
+                    onPointerDown={() => setCurrentPageId(page.id)}
+                  >
+                    <div className="margin-guide" style={{ inset: `${layout.margin}pt` }} />
+                    {!!layout.bleed && (
+                      <div
+                        className="bleed-guide"
+                        style={{
+                          // A bound book has no bleed on the binding (inner) edge; page 1 is a right-hand page.
+                          inset:
+                            layout.facing && !layout.data
+                              ? i % 2 === 0
+                                ? `${-layout.bleed}pt ${-layout.bleed}pt ${-layout.bleed}pt 0`
+                                : `${-layout.bleed}pt 0 ${-layout.bleed}pt ${-layout.bleed}pt`
+                              : `${-layout.bleed}pt`,
+                        }}
+                      />
+                    )}
+                    {items
+                      .filter((it) => it.location === location)
+                      .map((it) => (
+                        <ItemView
+                          key={it.id}
+                          item={it}
+                          unit="pt"
+                          selected={it.id === selected}
+                          onSelect={(id) => {
+                            setSelected(id);
+                            setCurrentPageId(page.id);
+                          }}
+                          toWorld={toPage}
+                          record={record}
+                          onDragEnd={onDragEnd}
+                          flow={flow.get(it.id)}
+                          onCommitFlowText={(f, text) => replaceStoryRange(f.storyId, f.start, f.end, text)}
+                          onOverflowClick={continueFrame}
+                        />
+                      ))}
+                    <span className="page-number">{i + 1}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
         {sel && (
-          <>
+          <div className="editor-bar editor-selbar">
             {sel.type === 'text' && (
               <>
+                <select aria-label="Font" value={sel.fontFamily ?? DEFAULT_FONT} onChange={(e) => styleText(sel, { fontFamily: e.target.value })}>
+                  {FONT_GROUPS.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.fonts.map((f) => (
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <label>
+                  <input
+                    type="number"
+                    aria-label="Font size in points"
+                    min={4}
+                    max={400}
+                    value={sel.fontSize ?? 11}
+                    onChange={(e) => +e.target.value >= 4 && styleText(sel, { fontSize: +e.target.value })}
+                  />
+                  pt
+                </label>
+                <input type="color" aria-label="Text colour" value={sel.color ?? '#1a1a1a'} onChange={(e) => styleText(sel, { color: e.target.value })} />
+                <select aria-label="Alignment" value={sel.align ?? 'left'} onChange={(e) => styleText(sel, { align: e.target.value as Item['align'] })}>
+                  <option value="left">Left</option>
+                  <option value="center">Centre</option>
+                  <option value="right">Right</option>
+                  <option value="justify">Justified</option>
+                </select>
+                <button className={sel.bold ? 'on' : ''} onClick={() => styleText(sel, { bold: !sel.bold })} aria-label="Bold">
+                  <b>B</b>
+                </button>
+                <button className={sel.italic ? 'on' : ''} onClick={() => styleText(sel, { italic: !sel.italic })} aria-label="Italic">
+                  <i>I</i>
+                </button>
                 <span
                   className="print-info"
-                  title="Double-click a frame to edit its text. Start a line with # for a heading, ## or ### for smaller ones. Wrap words in **two asterisks** for bold or *one* for italic."
+                  title="Double-click a frame to edit its text. Start a line with # for a heading, ## or ### for smaller ones. **bold**, *italic*, __underline__; start a line with {center} or {right} to align it."
                 >
-                  # Heading · **bold** · *italic*
+                  ?
                 </span>
-                <button
-                  onClick={() => continueFrame(sel)}
-                  title="Add a linked frame on the next page; text that does not fit here carries on there"
-                >
+                <button onClick={() => continueFrame(sel)} title="Add a linked frame on the next page; text that does not fit here carries on there">
                   Continue on next page
                 </button>
-                <button
-                  onClick={() => flowToEnd(sel)}
-                  title="Keep adding pages and linked frames until all of this text is placed"
-                >
+                <button onClick={() => flowToEnd(sel)} title="Keep adding pages and linked frames until all of this text is placed">
                   Flow to end
                 </button>
               </>
@@ -650,154 +896,81 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
               </select>
             )}
             <BackgroundButtons item={sel} />
+            {selStory?.source && (
+              <button onClick={() => setDocDialog('refresh')} title={`This text came from the Google Doc "${selStory.source.docTitle}". Check it for changes.`}>
+                Refresh from doc
+              </button>
+            )}
+            {selStory?.source && (
+              <button
+                disabled={withoutImageAddresses(selStory.text) === selStory.source.pulledText}
+                onClick={() => setDocDialog('push')}
+                title={
+                  withoutImageAddresses(selStory.text) === selStory.source.pulledText
+                    ? 'This text has not been edited since it was pulled, so there is nothing to push.'
+                    : `Write this text back into the Google Doc "${selStory.source.docTitle}".`
+                }
+              >
+                Push to doc
+              </button>
+            )}
             {!sel.storyId && <button onClick={() => sendToDesk(sel)}>Move to Desk</button>}
             <button onClick={deleteSelected}>Delete</button>
-          </>
+          </div>
         )}
-        {selStory?.source && (
-          <button
-            onClick={() => setDocDialog('refresh')}
-            title={`This text came from the Google Doc "${selStory.source.docTitle}". Check it for changes.`}
-          >
-            Refresh from doc
-          </button>
-        )}
-        {selStory?.source && (
-          <button
-            disabled={withoutImageAddresses(selStory.text) === selStory.source.pulledText}
-            onClick={() => setDocDialog('push')}
-            title={
-              withoutImageAddresses(selStory.text) === selStory.source.pulledText
-                ? 'This text has not been edited since it was pulled, so there is nothing to push.'
-                : `Write this text back into the Google Doc "${selStory.source.docTitle}".`
-            }
-          >
-            Push to doc
-          </button>
-        )}
-        <span className="spacer" />
-        {data && rowCount > 0 && (
-          <span className="row-pager" title="The data row shown in the template. Printing makes every card.">
-            <button disabled={shownRow <= 0} onClick={() => setPreviewRow(shownRow - 1)} aria-label="Previous row">
+
+        {bookMode && spreads.length > 0 && (
+          <>
+            <button className="book-turn prev" disabled={spreadIndex <= 0} onClick={() => goSpread(spreadIndex - 1)} aria-label="Previous spread" title="Previous spread (Page Up)">
               ‹
             </button>
-            Row {shownRow + 1} of {rowCount}
             <button
-              disabled={shownRow >= rowCount - 1}
-              onClick={() => setPreviewRow(shownRow + 1)}
-              aria-label="Next row"
+              className="book-turn next"
+              disabled={spreadIndex >= spreads.length - 1}
+              onClick={() => goSpread(spreadIndex + 1)}
+              aria-label="Next spread"
+              title="Next spread (Page Down)"
             >
               ›
             </button>
-            <span className="print-info">{cardCount} cards</span>
-          </span>
+            <div className="book-strip" role="tablist" aria-label="Spreads">
+              {spreads.map((s, si) => {
+                const first = pages.indexOf(s[0].page) + 1;
+                const last = pages.indexOf(s[s.length - 1].page) + 1;
+                return (
+                  <button
+                    key={s[0].page.id}
+                    role="tab"
+                    aria-selected={si === spreadIndex}
+                    className={si === spreadIndex ? 'on' : ''}
+                    onClick={() => goSpread(si)}
+                    title={first === last ? `Page ${first}` : `Pages ${first}–${last}`}
+                  >
+                    <span className="mini-spread">
+                      {layout.facing && s.length === 1 && first === 1 && <span className="mini-page blank" style={{ aspectRatio: `${layout.w} / ${layout.h}` }} />}
+                      {s.map((p) => (
+                        <MiniPage key={p.page.id} page={p.page} layout={layout} items={items} paper={theme.paper} />
+                      ))}
+                    </span>
+                    <span className="mini-label">{first === last ? first : `${first}–${last}`}</span>
+                  </button>
+                );
+              })}
+              <button className="mini-add" onClick={() => addPageAndShow()} title="Add a page at the end">
+                + Page
+              </button>
+            </div>
+          </>
         )}
-        <button
-          onClick={() => setDataOpen(true)}
-          title="Make many cards from one template and a table of rows"
-        >
-          Card data
-        </button>
-        <button
-          className="on"
-          onClick={() => setSuggesting(true)}
-          title="See arrangements for what is on the current page"
-        >
-          Suggest layouts
-        </button>
-        <button onClick={() => setDocDialog('pull')} title="Place text from a Google Doc on the current page">
-          From Google Doc
-        </button>
-        <button onClick={() => setTrayOpen((o) => !o)}>From the Desk ({deskItems.length})</button>
-        <span className="zoom">{Math.round(view.k * 100)}%</span>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = '';
-            void addImages(files);
-          }}
-        />
-      </div>
-
-      <div className="editor-body">
-        <div ref={rootRef} className="desk" style={surfaceStyle} {...handlers}>
-          <div
-            className="world"
-            style={{
-              transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`,
-              ['--inv' as string]: 1 / view.k,
-            }}
-          >
-            {placed.map(({ page, x, y }, i) => {
-              const location = pageLocation(page.id);
-              const toPage = (clientX: number, clientY: number) => {
-                const p = toWorld(clientX, clientY);
-                return { x: (p.x - x) * PT_PER_PX, y: (p.y - y) * PT_PER_PX };
-              };
-              return (
-                <div
-                  key={page.id}
-                  data-pan
-                  className={`page${current?.page.id === page.id ? ' current' : ''}`}
-                  style={{
-                    left: x,
-                    top: y,
-                    width: `${layout.w}pt`,
-                    height: `${layout.h}pt`,
-                    background: theme.paper,
-                  }}
-                  onPointerDown={() => setCurrentPageId(page.id)}
-                >
-                  <div className="margin-guide" style={{ inset: `${layout.margin}pt` }} />
-                  {!!layout.bleed && (
-                    <div
-                      className="bleed-guide"
-                      style={{
-                        // A bound book has no bleed on the binding (inner) edge; page 1 is a right-hand page.
-                        inset:
-                          layout.facing && !layout.data
-                            ? i % 2 === 0
-                              ? `${-layout.bleed}pt ${-layout.bleed}pt ${-layout.bleed}pt 0`
-                              : `${-layout.bleed}pt 0 ${-layout.bleed}pt ${-layout.bleed}pt`
-                            : `${-layout.bleed}pt`,
-                      }}
-                    />
-                  )}
-                  {items
-                    .filter((it) => it.location === location)
-                    .map((it) => (
-                      <ItemView
-                        key={it.id}
-                        item={it}
-                        unit="pt"
-                        selected={it.id === selected}
-                        onSelect={(id) => {
-                          setSelected(id);
-                          setCurrentPageId(page.id);
-                        }}
-                        toWorld={toPage}
-                        record={record}
-                        onDragEnd={onDragEnd}
-                        flow={flow.get(it.id)}
-                        onCommitFlowText={(f, text) => replaceStoryRange(f.storyId, f.start, f.end, text)}
-                        onOverflowClick={continueFrame}
-                      />
-                    ))}
-                  <span className="page-number">{i + 1}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
 
         {trayOpen && (
           <aside className="tray">
-            <h2>From the Desk</h2>
+            <h2>
+              From the Desk
+              <button onClick={() => setTrayOpen(false)} aria-label="Close">
+                ×
+              </button>
+            </h2>
             {deskItems.length === 0 && <p>Images and text on the Desk appear here. Click one to place it on the current page.</p>}
             {deskItems.map((it) => (
               <button key={it.id} onClick={() => bringFromDesk(it)} title="Move onto the current page">
@@ -807,6 +980,31 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
           </aside>
         )}
       </div>
+
+      {libraryOpen && (
+        <Library
+          className="in-editor"
+          hint="Click to place on the current page, or drag onto any page. Google Docs bring their text; PDFs their first page; Slides their first slide."
+          onPick={pickFromDrive}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
+
+      {addMenu && (
+        <ItemMenu
+          x={addMenu.x}
+          y={addMenu.y}
+          onClose={() => setAddMenu(null)}
+          options={[
+            { label: addMenu.pt ? 'Text here' : 'Text', onSelect: () => addText(undefined, addMenu.pageId, addMenu.pt) },
+            { label: 'Picture from this computer', onSelect: () => fileRef.current?.click() },
+            { label: 'From Google Drive…', onSelect: () => setLibraryOpen(true) },
+            { label: 'Text from a Google Doc…', onSelect: () => setDocDialog('pull') },
+            { label: `From the Desk (${deskItems.length})`, onSelect: () => setTrayOpen(true) },
+            { label: 'Page at the end', divider: true, onSelect: () => addPageAndShow() },
+          ]}
+        />
+      )}
 
       <PrintView layout={layout} pages={pages} items={items} flow={flow} />
 
@@ -854,7 +1052,16 @@ export function LayoutEditor({ layoutId, onClose }: Props) {
             />
           );
         })()}
-      {docDialog === 'pull' && <PullDialog onClose={() => setDocDialog(null)} onPlace={placeFromDoc} />}
+      {docDialog === 'pull' && (
+        <PullDialog
+          initialLink={pullLink ?? undefined}
+          onClose={() => {
+            setDocDialog(null);
+            setPullLink(null);
+          }}
+          onPlace={placeFromDoc}
+        />
+      )}
       {docDialog === 'push' && selStory?.source && (
         <PushDialog
           story={selStory}

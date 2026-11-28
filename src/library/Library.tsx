@@ -17,8 +17,36 @@ const HOLD_MS = 220;
 
 interface Props {
   /** Where a clicked file goes: 'desk', or this device's id when its Stage is showing. */
-  defaultLocation: string;
+  defaultLocation?: string;
+  /** Opens showing this folder (a Mind Palace folder whose card was opened). */
+  startFolder?: { id: string; name: string };
+  /**
+   * Replaces the usual "add to the workspace": called with the chosen file and,
+   * if it was dragged out, the screen point it was dropped at. Used by the layout editor.
+   */
+  onPick?: (file: DriveFile, drop: { x: number; y: number } | null) => Promise<void>;
+  /** Shown under the tabs, saying what clicking and dragging do here. */
+  hint?: string;
+  className?: string;
   onClose: () => void;
+}
+
+/** Shows text with any web address in it as a link. */
+function Linked({ text }: { text: string }) {
+  const parts = text.split(/(https:\/\/\S+)/);
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.startsWith('https://') ? (
+          <a key={i} href={p} target="_blank" rel="noopener noreferrer">
+            {p.length > 60 ? `${p.slice(0, 60)}…` : p}
+          </a>
+        ) : (
+          p
+        ),
+      )}
+    </>
+  );
 }
 
 /**
@@ -26,10 +54,12 @@ interface Props {
  * workspace. Click a file to add it, or drag it out of the panel and drop it;
  * dropping on a device in the Overview sends it straight to that device.
  */
-export function Library({ defaultLocation, onClose }: Props) {
+export function Library({ defaultLocation = 'desk', startFolder, onPick, hint, className = '', onClose }: Props) {
   const [connected, setConnected] = useState(isDriveConnected());
-  const [tab, setTab] = useState<LibraryTab>('recent');
-  const [path, setPath] = useState<Array<{ id: string; name: string }>>([{ id: 'root', name: 'My Drive' }]);
+  const [tab, setTab] = useState<LibraryTab>(startFolder ? 'drive' : 'recent');
+  const [path, setPath] = useState<Array<{ id: string; name: string }>>(
+    startFolder ? [{ id: 'root', name: 'My Drive' }, startFolder] : [{ id: 'root', name: 'My Drive' }],
+  );
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState(''); // the search actually applied, after a pause in typing
   const [files, setFiles] = useState<DriveFile[]>([]);
@@ -78,7 +108,7 @@ export function Library({ defaultLocation, onClose }: Props) {
     if (connected) void load();
   }, [connected, load]);
 
-  async function add(file: DriveFile, location: string) {
+  async function add(file: DriveFile, location: string, drop: { x: number; y: number } | null = null) {
     if (driveKind(file) === 'folder') {
       setTab('drive');
       setSearch('');
@@ -89,8 +119,9 @@ export function Library({ defaultLocation, onClose }: Props) {
     setAdding((s) => new Set(s).add(file.id));
     setError(null);
     try {
+      if (onPick) await onPick(file, drop);
       // Each new thing lands a little down and right of the last.
-      await addFromDrive(file, location, { x: 240 + (added % 8) * 28, y: 240 + (added % 8) * 28 });
+      else await addFromDrive(file, location, { x: 240 + (added % 8) * 28, y: 240 + (added % 8) * 28 });
       setAdded((n) => n + 1);
     } catch (err) {
       setError(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
@@ -148,7 +179,9 @@ export function Library({ defaultLocation, onClose }: Props) {
       finish();
       if (cancelled) return;
       if (!wasLifted) void add(file, defaultLocation); // a plain click or tap
-      else if (!overLibrary(ev.clientX, ev.clientY)) void add(file, placeAt(ev.clientX, ev.clientY) ?? defaultLocation);
+      else if (!overLibrary(ev.clientX, ev.clientY)) {
+        void add(file, placeAt(ev.clientX, ev.clientY) ?? defaultLocation, { x: ev.clientX, y: ev.clientY });
+      }
     };
     const onCancel = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
@@ -186,7 +219,7 @@ export function Library({ defaultLocation, onClose }: Props) {
   const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
   return (
-    <aside className="library" aria-label="Library">
+    <aside className={`library ${className}`} aria-label="Library">
       <header>
         <strong>Library</strong>
         <span className="lib-source">Google Drive</span>
@@ -208,8 +241,14 @@ export function Library({ defaultLocation, onClose }: Props) {
           <button className="primary" disabled={loading} onClick={() => void load()}>
             {loading ? 'Connecting…' : 'Connect Google Drive'}
           </button>
-          <p className="lib-small">Mind Palace asks for read-only access. It cannot change or delete anything in your Drive.</p>
-          {error && <p className="error">{error}</p>}
+          <p className="lib-small">
+            Mind Palace asks for read-only access to browse. It cannot change or delete anything in your Drive.
+          </p>
+          {error && (
+            <p className="error">
+              <Linked text={error} />
+            </p>
+          )}
         </div>
       ) : (
         <>
@@ -237,7 +276,12 @@ export function Library({ defaultLocation, onClose }: Props) {
               ))}
             </div>
           )}
-          {error && <p className="error">{error}</p>}
+          {hint && <p className="lib-small">{hint}</p>}
+          {error && (
+            <p className="error">
+              <Linked text={error} />
+            </p>
+          )}
           <div className="lib-list">
             {files.map((file) => {
               const kind = driveKind(file);

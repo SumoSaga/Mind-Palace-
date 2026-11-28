@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Story, StorySource } from '../store';
 import { summariseChanges, unresolvedImages, withoutImageAddresses } from './convert';
 import type { ConvertedDoc } from './convert';
@@ -45,11 +45,14 @@ function SetupHelp() {
 export function PullDialog({
   onClose,
   onPlace,
+  initialLink,
 }: {
   onClose: () => void;
   onPlace: (text: string, source: StorySource, flowAcrossPages: boolean) => void;
+  /** A doc already chosen (from the Library): loaded straight away. */
+  initialLink?: string;
 }) {
-  const [link, setLink] = useState('');
+  const [link, setLink] = useState(initialLink ?? '');
   const [doc, setDoc] = useState<(ConvertedDoc & { docId: string }) | null>(null);
   const [section, setSection] = useState(WHOLE);
   const [flowOn, setFlowOn] = useState(true);
@@ -70,6 +73,16 @@ export function PullDialog({
       setBusy(false);
     }
   }
+
+  // A doc chosen in the Library is loaded at once.
+  const autoLoaded = useRef(false);
+  useEffect(() => {
+    if (!initialLink || autoLoaded.current || !isGoogleConfigured()) return;
+    autoLoaded.current = true;
+    void load();
+    // Runs once, for the doc the dialog was opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function place() {
     if (!doc || busy) return;
